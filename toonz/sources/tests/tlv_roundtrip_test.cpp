@@ -233,10 +233,15 @@ int main(int argc, char **argv) {
   //     with 16 styles but fails with 256, and the data is otherwise identical
   //     in shape.
   //
-  // Both are consistent with the writer under-allocating the LZO output
-  // buffer: LZO can expand incompressible input, and small inputs are
-  // dominated by its fixed overhead. A rewrite under discussion #6746 should
-  // fix this and turn the probe below into a real assertion.
+  // The cause is in the icon reader in tiio_tzl.cpp. It bounds the stored
+  // buffer size, which is a *compressed* length, against the *raw* icon size,
+  // and then freads that many bytes straight into the icon raster. Small or
+  // incompressible icons legitimately compress to more than their raw size,
+  // because LZO can expand input and has fixed per-block overhead, so they are
+  // rejected. The bound cannot simply be widened: it is also what stops the
+  // fread from overflowing the raster, so the fix needs a separate buffer
+  // sized from the stored length. That belongs with the rewrite in #6746,
+  // where this probe becomes a real assertion.
   {
     int firstGoodHeight = 0;
     for (int h = 1; h <= 8 && firstGoodHeight == 0; ++h) {
