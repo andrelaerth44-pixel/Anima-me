@@ -74,6 +74,27 @@ static QScriptValue dummyFun(QScriptContext *context, QScriptEngine *engine) {
   return QScriptValue(engine, 0);
 }
 
+static QScriptValue getProjectFolderFun(QScriptContext *context,
+                                        QScriptEngine *engine) {
+  ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  if (!scene || !scene->getProject())
+    return context->throwError("No current project is available");
+
+  return QScriptValue(engine, scene->getProject()->getProjectFolder().getQString());
+}
+
+static QScriptValue getSceneFolderFun(QScriptContext *context,
+                                      QScriptEngine *engine) {
+  ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  if (!scene || !scene->getProject())
+    return context->throwError("No current scene is available");
+
+  TFilePath scenePath = scene->getScenePath();
+  TFilePath folder = scene->isUntitled() ? scene->getProject()->getScenesPath()
+                                         : scenePath.getParentDir();
+  return QScriptValue(engine, folder.getQString());
+}
+
 static QScriptValue viewFun(QScriptContext *context, QScriptEngine *engine) {
   TScriptBinding::Image *image = 0;
   TScriptBinding::Level *level = 0;
@@ -141,6 +162,8 @@ def(teng, "loadLevel", loadLevelFun);
 
   def(teng, "view", viewFun);
   def(teng, "dummy", dummyFun);
+  def(teng, "getProjectFolder", getProjectFolderFun);
+  def(teng, "getSceneFolder", getSceneFolderFun);
 
   // teng->getQScriptEngine()->evaluate("console={version:'1.0'};function
   // version() {print('Toonz '+toonz.version+'\nscript '+script.version);};");
