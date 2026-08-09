@@ -3022,6 +3022,7 @@ void ColumnArea::contextMenuEvent(QContextMenuEvent *event) {
         menu.addAction(cmdManager->getAction(MI_CloneChild));
         menu.addAction(cmdManager->getAction(MI_ExplodeChild));
       }
+      menu.addAction(cmdManager->getAction(MI_SelectParentColumn));
       menu.addSeparator();
     }
     menu.addAction(cmdManager->getAction(MI_FoldColumns));
