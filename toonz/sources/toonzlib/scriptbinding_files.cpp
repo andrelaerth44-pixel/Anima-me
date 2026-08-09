@@ -5,6 +5,11 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDirIterator>
+#include <QScriptValueIterator>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonParseError>
 #include "tsystem.h"
 
 namespace TScriptBinding {
@@ -128,6 +133,125 @@ QScriptValue FilePath::files() const {
     return context()->throwError(
         tr("can't read directory %1").arg(toString().toString()));
   }
+}
+
+namespace {
+
+/*-- QtScript has no JSON bridge, so convert explicitly rather than evaluating
+ * the document as source, which would execute whatever the file contains. --*/
+QScriptValue jsonToScript(QScriptEngine *engine, const QJsonValue &value) {
+  switch (value.type()) {
+  case QJsonValue::Null:
+    return QScriptValue(QScriptValue::NullValue);
+  case QJsonValue::Bool:
+    return QScriptValue(value.toBool());
+  case QJsonValue::Double:
+    return QScriptValue(value.toDouble());
+  case QJsonValue::String:
+    return QScriptValue(engine, value.toString());
+  case QJsonValue::Array: {
+    QJsonArray array   = value.toArray();
+    QScriptValue result = engine->newArray(array.size());
+    for (int i = 0; i < array.size(); i++)
+      result.setProperty(i, jsonToScript(engine, array.at(i)));
+    return result;
+  }
+  case QJsonValue::Object: {
+    QJsonObject object  = value.toObject();
+    QScriptValue result = engine->newObject();
+    for (auto it = object.begin(); it != object.end(); ++it)
+      result.setProperty(it.key(), jsonToScript(engine, it.value()));
+    return result;
+  }
+  default:
+    return QScriptValue(QScriptValue::UndefinedValue);
+  }
+}
+
+QJsonValue scriptToJson(const QScriptValue &value) {
+  if (value.isNull() || value.isUndefined()) return QJsonValue();
+  if (value.isBool()) return QJsonValue(value.toBool());
+  if (value.isNumber()) return QJsonValue(value.toNumber());
+  if (value.isArray()) {
+    QJsonArray array;
+    int length = value.property("length").toInt32();
+    for (int i = 0; i < length; i++)
+      array.append(scriptToJson(value.property(i)));
+    return array;
+  }
+  if (value.isObject()) {
+    QJsonObject object;
+    QScriptValueIterator it(value);
+    while (it.hasNext()) {
+      it.next();
+      object.insert(it.name(), scriptToJson(it.value()));
+    }
+    return object;
+  }
+  return QJsonValue(value.toString());
+}
+
+}  // namespace
+
+QScriptValue FilePath::readText() const {
+  QFile file(m_filePath);
+  if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+    return context()->throwError(
+        tr("Can't read the file %1").arg(m_filePath));
+  QString text = QString::fromUtf8(file.readAll());
+  file.close();
+  return QScriptValue(engine(), text);
+}
+
+QScriptValue FilePath::writeText(const QString &text) const {
+  TFilePath fp = getToonzFilePath();
+  try {
+    TSystem::touchParentDir(fp);
+  } catch (...) {
+  }
+  QFile file(m_filePath);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+    return context()->throwError(
+        tr("Can't write the file %1").arg(m_filePath));
+  if (file.write(text.toUtf8()) < 0) {
+    file.close();
+    return context()->throwError(
+        tr("Can't write the file %1").arg(m_filePath));
+  }
+  file.close();
+  return QScriptValue();
+}
+
+QScriptValue FilePath::readJson() const {
+  QFile file(m_filePath);
+  if (!file.open(QIODevice::ReadOnly))
+    return context()->throwError(
+        tr("Can't read the file %1").arg(m_filePath));
+  QByteArray data = file.readAll();
+  file.close();
+
+  QJsonParseError error;
+  QJsonDocument document = QJsonDocument::fromJson(data, &error);
+  if (error.error != QJsonParseError::NoError)
+    return context()->throwError(tr("%1 is not valid JSON: %2")
+                                    .arg(m_filePath)
+                                    .arg(error.errorString()));
+  if (document.isArray()) return jsonToScript(engine(), document.array());
+  return jsonToScript(engine(), document.object());
+}
+
+QScriptValue FilePath::writeJson(const QScriptValue &value) const {
+  QJsonValue json = scriptToJson(value);
+  QJsonDocument document;
+  if (json.isArray())
+    document = QJsonDocument(json.toArray());
+  else if (json.isObject())
+    document = QJsonDocument(json.toObject());
+  else
+    return context()->throwError(
+        tr("Only objects and arrays can be written as JSON"));
+
+  return writeText(QString::fromUtf8(document.toJson(QJsonDocument::Indented)));
 }
 
 QScriptValue checkFilePath(QScriptContext *context, const QScriptValue &value,

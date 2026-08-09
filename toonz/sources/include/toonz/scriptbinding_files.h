@@ -56,6 +56,14 @@ public:
   // return a list of FilePath contained in the folder (assuming this FilePath
   // is a folder)
   Q_INVOKABLE QScriptValue files() const;
+
+  // Plain-text and JSON access. Scripts previously had no way to read or write
+  // their own data files, so intermediate results had to be smuggled through
+  // scene fields or produced outside OpenToonz.
+  Q_INVOKABLE QScriptValue readText() const;
+  Q_INVOKABLE QScriptValue writeText(const QString &text) const;
+  Q_INVOKABLE QScriptValue readJson() const;
+  Q_INVOKABLE QScriptValue writeJson(const QScriptValue &value) const;
 };
 
 // helper functions
