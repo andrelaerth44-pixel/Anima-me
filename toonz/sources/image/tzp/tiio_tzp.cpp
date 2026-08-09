@@ -7,7 +7,6 @@
 #include "texception.h"
 
 #include "tiffio.h"
-#include "tiffiop.h"
 // #include "tspecialstyleid.h"
 #include <set>
 
@@ -225,8 +224,11 @@ void TzpReader::readLine(char *buffer, int x0, int x1, int shrink) {
       static std::set<int> table;
 
       /// per le tzp che vengono da Irix
+      // TIFFIsByteSwapped reports whether the file order differs from the host
+      // order, so combine it with the host order to recover the file's own
+      // endianness without reaching into libtiff's private TIFF struct.
       bool bigEndian =
-          (m_tiff->tif_header.classic.tiff_magic == TIFF_BIGENDIAN);
+          (TIFFIsByteSwapped(m_tiff) != 0) == (TNZ_LITTLE_ENDIAN != 0);
 
       for (int i = 0; i < m_lx; i++) {
         unsigned short inPix = line[i];
@@ -255,8 +257,11 @@ void TzpReader::readLine(char *buffer, int x0, int x1, int shrink) {
       static std::set<int> table;
 
       /// per le tzp che vengono da Irix
+      // TIFFIsByteSwapped reports whether the file order differs from the host
+      // order, so combine it with the host order to recover the file's own
+      // endianness without reaching into libtiff's private TIFF struct.
       bool bigEndian =
-          (m_tiff->tif_header.classic.tiff_magic == TIFF_BIGENDIAN);
+          (TIFFIsByteSwapped(m_tiff) != 0) == (TNZ_LITTLE_ENDIAN != 0);
 
       for (int i = 0; i < m_lx; i++) {
         unsigned short inPix = line[i];
