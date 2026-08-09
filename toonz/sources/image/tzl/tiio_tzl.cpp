@@ -1,5 +1,6 @@
 
 
+#include <vector>
 #include "tiio_tzl.h"
 #include "tmachine.h"
 #include "tsystem.h"
@@ -2120,15 +2121,23 @@ TImageP TImageReaderTzl::load14() {
       throw TException("Loading tlv: bad icon size.");
     fread(&actualBuffSize, sizeof(TINT32), 1, chan);
 
-    if (actualBuffSize <= 0 ||
-        actualBuffSize > (int)(iconLx * iconLy * sizeof(TPixelCM32)))
+    // actualBuffSize is a compressed length. LZO can expand incompressible
+    // input and carries fixed per-block overhead, so a small or noisy icon
+    // legitimately stores more bytes than its raw size. Bounding it by the raw
+    // size therefore rejected valid files; bounding it by LZO's documented
+    // worst-case expansion accepts them while still capping what a malformed
+    // file can make us allocate.
+    TINT32 rawIconSize   = (TINT32)(iconLx * iconLy * sizeof(TPixelCM32));
+    TINT32 maxBuffSize   = rawIconSize + rawIconSize / 16 + 64 + 3;
+    if (actualBuffSize <= 0 || actualBuffSize > maxBuffSize)
       throw TException("Loading tlv: icon buffer size error.");
 
-    TRasterCM32P raux = TRasterCM32P(iconLx, iconLy);
-    if (!raux) return TImageP();
-    raux->lock();
-    imgBuff = (UCHAR *)raux->getRawData();  // new UCHAR[imgBuffSize];
-    fread(imgBuff, actualBuffSize, 1, chan);
+    // Read the compressed payload into its own buffer. It used to be read into
+    // the icon raster, which is what forced the bound above to be a raw size.
+    std::vector<UCHAR> iconBuff(actualBuffSize);
+    imgBuff = iconBuff.data();
+    if (fread(imgBuff, actualBuffSize, 1, chan) != 1)
+      throw TException("Loading tlv: icon read error.");
 
 #if !TNZ_LITTLE_ENDIAN
     Header *header    = (Header *)imgBuff;
@@ -2142,8 +2151,6 @@ TImageP TImageReaderTzl::load14() {
     if (!codec.decompress(imgBuff, actualBuffSize, ras, m_safeMode))
       return TImageP();
     assert((TRasterCM32P)ras);
-    raux->unlock();
-    raux = TRasterCM32P();
 
 #if !TNZ_LITTLE_ENDIAN
 
@@ -2220,20 +2227,22 @@ TImageP TImageReaderTzl::load14() {
     ti->setPalette(m_lrp->m_level->getPalette());
     return ti;
   }
-  if (actualBuffSize <= 0 ||
-      actualBuffSize > (int)(m_lx * m_ly * sizeof(TPixelCM32)))
+  // Same reasoning as the icon path above: actualBuffSize is a compressed
+  // length, and LZO can store more bytes than the raw image for small or
+  // incompressible data, so the raw size is the wrong bound. Use LZO's
+  // documented worst-case expansion, which still caps what a malformed file
+  // can make us allocate.
+  TINT32 rawSize     = (TINT32)(m_lx * m_ly * sizeof(TPixelCM32));
+  TINT32 maxBuffSize = rawSize + rawSize / 16 + 64 + 3;
+  if (actualBuffSize <= 0 || actualBuffSize > maxBuffSize)
     throw TException("Loading tlv: buffer size error");
 
-  TRasterCM32P raux = TRasterCM32P(m_lx, m_ly);
-
-  // imgBuffSize = m_lx*m_ly*sizeof(TPixelCM32);
-
-  raux->lock();
-  imgBuff = (UCHAR *)raux->getRawData();  // new UCHAR[imgBuffSize];
-  // int ret =
-
-  fread(imgBuff, actualBuffSize, 1, chan);
-  // assert(ret==1);
+  // Read the compressed payload into its own buffer rather than into the
+  // destination raster, which is what forced the bound above to be a raw size.
+  std::vector<UCHAR> frameBuff(actualBuffSize);
+  imgBuff = frameBuff.data();
+  if (fread(imgBuff, actualBuffSize, 1, chan) != 1)
+    throw TException("Loading tlv: frame read error");
 
   Header *header = (Header *)imgBuff;
 
@@ -2254,8 +2263,6 @@ TImageP TImageReaderTzl::load14() {
     throw TException("Loading tlv: lx dimension error.");
   if (ras->getLy() != header->m_ly)
     throw TException("Loading tlv: ly dimension error.");
-  raux->unlock();
-  raux = TRasterCM32P();
 
 #if !TNZ_LITTLE_ENDIAN
 

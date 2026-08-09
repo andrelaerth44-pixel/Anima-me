@@ -15,6 +15,9 @@
 // prove that files written by older OpenToonz releases still read correctly.
 // Closing that gap needs genuinely old .tlv files, which the repository does
 // not contain.
+//
+// Writing this harness immediately exposed a real defect in the reader, now
+// fixed in this branch and guarded by the final case below.
 
 #include "tlevel_io.h"
 #include "tlevel.h"
@@ -175,6 +178,11 @@ int main(int argc, char **argv) {
       {"tall and narrow", 3, 129, 2, 16},
       {"square", 32, 32, 1, 16},
       {"odd dimensions", 37, 23, 3, 9},
+      {"wide and short", 129, 7, 2, 16},
+      {"many styles", 32, 32, 1, 256},
+      {"single pixel", 1, 1, 1, 2},
+      {"two rows", 16, 2, 1, 4},
+      {"five rows", 8, 5, 1, 4},
   };
 
   for (const Case &c : cases) {
@@ -221,41 +229,25 @@ int main(int argc, char **argv) {
     }
   }
 
-  // Known issue, reported rather than asserted so the suite stays green while
-  // the defect stands.
-  //
-  // Some levels cannot be read back at all; the reader raises "Loading tlv:
-  // buffer size error". Two independent triggers were found:
-  //
-  //   * any level shorter than six rows, regardless of width, frame count or
-  //     style count - the boundary is sharp and reproducible;
-  //   * levels whose pixel data compresses poorly. A 32x32 level round-trips
-  //     with 16 styles but fails with 256, and the data is otherwise identical
-  //     in shape.
-  //
-  // The cause is in the icon reader in tiio_tzl.cpp. It bounds the stored
-  // buffer size, which is a *compressed* length, against the *raw* icon size,
-  // and then freads that many bytes straight into the icon raster. Small or
-  // incompressible icons legitimately compress to more than their raw size,
-  // because LZO can expand input and has fixed per-block overhead, so they are
-  // rejected. The bound cannot simply be widened: it is also what stops the
-  // fread from overflowing the raster, so the fix needs a separate buffer
-  // sized from the stored length. That belongs with the rewrite in #6746,
-  // where this probe becomes a real assertion.
+  // Regression guard for the buffer-size defect this harness first exposed.
+  // Both the icon reader and the frame reader bounded a *compressed* length by
+  // the *raw* pixel size, and read the payload straight into the destination
+  // raster. LZO can store more bytes than the raw image for small or
+  // incompressible data, so valid levels were rejected outright: nothing
+  // shorter than six rows would load, nor would high-entropy levels such as a
+  // 32x32 level with 256 styles. Reading into a buffer sized from the stored
+  // length, bounded by LZO's worst-case expansion, fixes both. A single-row
+  // level must load.
   {
-    int firstGoodHeight = 0;
-    for (int h = 1; h <= 8 && firstGoodHeight == 0; ++h) {
-      TFilePath fp = dir + TFilePath("probe_h" + std::to_string(h) + ".tlv");
+    int shortest = 0;
+    for (int h = 1; h <= 8 && shortest == 0; ++h) {
+      TFilePath fp      = dir + TFilePath("probe_h" + std::to_string(h) + ".tlv");
       TPaletteP palette = makePalette(4);
       std::vector<TRasterCM32P> frames{makePattern(8, h, 4)};
       std::vector<TRasterCM32P> back;
-      if (writeLevel(fp, frames, palette) && readLevel(fp, back))
-        firstGoodHeight = h;
+      if (writeLevel(fp, frames, palette) && readLevel(fp, back)) shortest = h;
     }
-    std::printf(
-        "\nKNOWN ISSUE: the shortest level that round-trips is %d rows;\n"
-        "             anything shorter fails with a buffer size error.\n",
-        firstGoodHeight);
+    check(shortest == 1, "a one-row level round-trips");
   }
 
   std::printf("\n%s (%d failure%s)\n", g_failures ? "FAILED" : "ALL PASSED",
