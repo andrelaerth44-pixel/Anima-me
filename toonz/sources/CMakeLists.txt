@@ -746,6 +746,14 @@ add_subdirectory(tnztools)
 
 add_subdirectory(${SDKROOT}/lzo/driver lzodriver)
 
+# Tests are opt-in so a normal build is unaffected. This is the first test
+# target in the tree; see discussion #6746.
+option(WITH_TESTS "Build the test targets" OFF)
+if(WITH_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
 add_subdirectory(toonz)
 add_subdirectory(tcleanupper)
 add_subdirectory(tcomposer)
