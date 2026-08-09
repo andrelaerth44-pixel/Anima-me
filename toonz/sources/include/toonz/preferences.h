@@ -448,6 +448,9 @@ public:
   bool isCurrentTimelineIndicatorEnabled() const {
     return getBoolValue(currentTimelineEnabled);
   }
+  bool isAutoSelectCurrentFrameEnabled() const {
+    return getBoolValue(autoSelectCurrentFrame);
+  }
   void getCurrentColumnData(TPixel &color) const {
     color = getColorValue(currentColumnColor);
   }

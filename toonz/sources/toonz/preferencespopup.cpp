@@ -1405,6 +1405,7 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {syncLevelRenumberWithXsheet,
        tr("Sync Level Strip Drawing Number Changes with the Xsheet")},
       {currentTimelineEnabled, tr("Show Current Time Indicator")},
+      {autoSelectCurrentFrame, tr("Automatically Select Current Frame")},
       {currentColumnColor, tr("Current Column Color:")},
       //{ levelNameOnEachMarkerEnabled, tr("Display Level Name on Each
       // Marker")
@@ -2243,6 +2244,7 @@ QWidget* PreferencesPopup::createXsheetPage() {
   {
     insertUI(highlightLineEverySecond, xshCellAreaLay);
     insertUI(currentTimelineEnabled, xshCellAreaLay);
+    insertUI(autoSelectCurrentFrame, xshCellAreaLay);
     insertUI(showFrameNumberWithLetters, xshCellAreaLay);
   }
 

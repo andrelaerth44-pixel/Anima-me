@@ -154,6 +154,7 @@ enum PreferencesItemId {
   highlightLineEverySecond,
   syncLevelRenumberWithXsheet,
   currentTimelineEnabled,
+  autoSelectCurrentFrame,
   currentColumnColor,
   levelNameDisplayType,
   showFrameNumberWithLetters,
