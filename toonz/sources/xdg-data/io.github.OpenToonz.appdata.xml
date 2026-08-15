@@ -11,11 +11,11 @@
   <summary>2D animation</summary>
   <description>
     <p>
-      OpenToonz is a complete 2D animation package for producing hand-drawn
-      and cut-out animation. It combines drawing and painting tools, an xsheet
-      and timeline for timing, a node-based compositing system with a large
+      OpenToonz is a complete 2D animation package for producing hand drawn
+      and cut out animation. It combines drawing and painting tools, an xsheet
+      and timeline for timing, a node based compositing system with a large
       library of effects, and scanning and cleanup tools for traditional
-      pencil-on-paper workflows.
+      pencil on paper workflows.
     </p>
     <p>
       It is based on the software "Toonz", which was developed
