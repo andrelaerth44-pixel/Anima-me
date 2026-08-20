@@ -11,16 +11,18 @@ Although any LESS compiler will work fine, here is a recommended setup.
 
 1. Install [Visual Studio Code](https://code.visualstudio.com/) by Microsoft.
 2. Add the [Easy LESS](https://marketplace.visualstudio.com/items?itemName=mrcrowl.easy-less) extension (by **mrcrowl**) from the marketplace which will be used as the compiler (on save).
-3. In VSCode, navigate to your OpenToonz stuff folder and open `config/qss/Default/less`.
+3. In VSCode, open `stuff/config/qss/Default/less` from your OpenToonz checkout.
 
-A `settings.json` file is already included to ensure developers work to the same standards located in `.vscode`. If the file must be created manually then the following should apply.
+A `.vscode/settings.json` file is included in `stuff/config/qss/Default/less` so contributors use the same standards. If the file must be created manually, use the following settings.
 
-``` json
+```json
+{
   "editor.tabSize": 2,
   "less.compile": {
-  "compress":  true,
-  "sourceMap": false,
-  "out":       false
+    "compress": false,
+    "sourceMap": false,
+    "out": false
+  }
 }
 ```
 
@@ -46,27 +48,29 @@ Fedora:
 The Easy LESS extension uses a **compile on save** feature, so the theme files must be saved to generate an output.
 
 ```
-less/themes/default/default-theme.less
-less/themes/others/default-green-theme.less
-less/themes/others/blue-theme.less
-less/themes/others/dark-theme.less
-less/themes/others/clay-theme.less
-less/themes/others/neutral-theme.less
-less/themes/others/light-theme.less
-less/themes/others/synthwave-theme.less
+themes/default/default-theme.less
+themes/others/default-green-theme.less
+themes/others/blue-theme.less
+themes/others/dark-theme.less
+themes/others/darker-theme.less
+themes/others/clay-theme.less
+themes/others/neutral-theme.less
+themes/others/light-theme.less
 ```
 
 ### Linux
-From opentoonz source directory root execute the following commands:
-```
-$ lessc -x less/themes/default/default-theme.less stuff/config/qss/Default/Default.qss
-$ lessc -x less/themes/others/default-green-theme.less stuff/config/qss/Default-Green/Default-Green.qss
-$ lessc -x less/themes/others/blue-theme.less stuff/config/qss/Blue/Blue.qss
-$ lessc -x less/themes/others/dark-theme.less stuff/config/qss/Dark/Dark.qss
-$ lessc -x less/themes/others/clay-theme.less stuff/config/qss/Clay/Clay.qss
-$ lessc -x less/themes/others/neutral-theme.less stuff/config/qss/Neutral/Neutral.qss
-$ lessc -x less/themes/others/light-theme.less stuff/config/qss/Light/Light.qss
-$ lessc -x less/themes/others/synthwave-theme.less stuff/config/qss/Synthwave/Synthwave.qss
+
+From the OpenToonz repository root, run the following commands. The output is intentionally left uncompressed to match the repository settings and keep generated QSS changes reviewable.
+
+```sh
+$ lessc stuff/config/qss/Default/less/themes/default/default-theme.less stuff/config/qss/Default/Default.qss
+$ lessc stuff/config/qss/Default/less/themes/others/default-green-theme.less stuff/config/qss/Default-Green/Default-Green.qss
+$ lessc stuff/config/qss/Default/less/themes/others/blue-theme.less stuff/config/qss/Blue/Blue.qss
+$ lessc stuff/config/qss/Default/less/themes/others/dark-theme.less stuff/config/qss/Dark/Dark.qss
+$ lessc stuff/config/qss/Default/less/themes/others/darker-theme.less stuff/config/qss/Darker/Darker.qss
+$ lessc stuff/config/qss/Default/less/themes/others/clay-theme.less stuff/config/qss/Clay/Clay.qss
+$ lessc stuff/config/qss/Default/less/themes/others/neutral-theme.less stuff/config/qss/Neutral/Neutral.qss
+$ lessc stuff/config/qss/Default/less/themes/others/light-theme.less stuff/config/qss/Light/Light.qss
 ```
 
 ## How They Work
