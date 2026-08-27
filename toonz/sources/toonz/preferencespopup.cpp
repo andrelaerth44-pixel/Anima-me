@@ -666,8 +666,8 @@ void PreferencesPopup::beforeRoomChoiceChanged() {
 //-----------------------------------------------------------------------------
 
 void PreferencesPopup::onColorCalibrationChanged() {
-  CommandManager::instance()->setChecked(
-      MI_ToggleColorCalibration, m_pref->isColorCalibrationEnabled());
+  CommandManager::instance()->setChecked(MI_ToggleColorCalibration,
+                                         m_pref->isColorCalibrationEnabled());
   LutManager::instance()->update();
   TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
       "ColorCalibration");
