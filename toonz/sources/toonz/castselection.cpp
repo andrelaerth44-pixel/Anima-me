@@ -19,6 +19,8 @@
 #include "toonz/txshsoundlevel.h"
 #include "toonz/preferences.h"
 
+#include <string>
+
 //=============================================================================
 //
 // CastSelection
@@ -94,8 +96,25 @@ QPixmap LevelCastItem::getPixmap(bool isSelected) const {
   if (Preferences::instance()->getColumnIconLoadingPolicy() ==
       Preferences::LoadOnDemand)
     onDemand = !isSelected;
-  QPixmap icon = IconGenerator::instance()->getIcon(sl, sl->getFirstFid(),
-                                                    false, onDemand);
+
+  QPixmap icon;
+  const bool needNativeSize =
+      m_itemPixmapSize.width() > 80 || m_itemPixmapSize.height() > 60;
+  if (needNativeSize && !onDemand) {
+    const TDimension dim(m_itemPixmapSize.width(), m_itemPixmapSize.height());
+    const std::string suffix =
+        "_r_" + std::to_string(dim.lx) + "x" + std::to_string(dim.ly);
+    icon = IconGenerator::instance()->getSizedIcon(sl, sl->getFirstFid(),
+                                                   suffix, dim);
+  }
+  if (icon.isNull())
+    icon = IconGenerator::instance()->getIcon(sl, sl->getFirstFid(), false,
+                                              onDemand);
+  // Prefer a native-sized pixmap; the viewer scales it while resizing.
+  if (needNativeSize && !icon.isNull() &&
+      (icon.width() >= m_itemPixmapSize.width() * 0.9 ||
+       icon.height() >= m_itemPixmapSize.height() * 0.9))
+    return icon;
   return scalePixmapKeepingAspectRatio(icon, m_itemPixmapSize, Qt::transparent);
 }
 

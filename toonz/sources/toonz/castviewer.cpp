@@ -10,6 +10,7 @@
 #include "iocommand.h"
 #include "filmstripcommand.h"
 #include "flipbook.h"
+#include "tpanels.h"
 
 // TnzLib includes
 #include "toonz/tscenehandle.h"
@@ -27,7 +28,6 @@
 #include "toonzqt/gutil.h"
 #include "toonzqt/trepetitionguard.h"
 #include "toonzqt/icongenerator.h"
-#include "toonzqt/infoviewer.h"
 #include "historytypes.h"
 
 // TnzCore includes
@@ -56,7 +56,6 @@ const char *AudioFolderName = "Audio";
 using namespace DVGui;
 
 namespace {
-
 // Se il widget del cast viewer viene spostato in toonzqt (e quindi fatto
 // dipendere dallo sceneHandle)
 // questo undo puo' essere spostato in un nuovo file levelsetcommand in
@@ -465,7 +464,6 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   setFrameStyle(QFrame::StyledPanel);
 
   m_treeViewer = new CastTreeViewer(this);
-  m_treeViewer->resize(300, m_treeViewer->size().height());
 
   QFrame *box = new QFrame(this);
   box->setFrameStyle(QFrame::StyledPanel);
@@ -504,6 +502,7 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
   addWidget(box);
 
   setStretchFactor(1, 2);
+  setSizes(QList<int>() << 270 << 500);
 
   TSceneHandle *sceneHandle = TApp::instance()->getCurrentScene();
 
@@ -526,6 +525,19 @@ CastBrowser::CastBrowser(QWidget *parent, Qt::WindowFlags flags)
 //-----------------------------------------------------------------------------
 
 CastBrowser::~CastBrowser() {}
+
+//-----------------------------------------------------------------------------
+
+void CastBrowser::save(QSettings &settings) const {
+  settings.setValue("treeSplitterState", saveState());
+}
+
+//-----------------------------------------------------------------------------
+
+void CastBrowser::load(QSettings &settings) {
+  const QByteArray state = settings.value("treeSplitterState").toByteArray();
+  if (!state.isEmpty()) restoreState(state);
+}
 
 //-----------------------------------------------------------------------------
 
@@ -913,14 +925,12 @@ void CastBrowser::viewFileInfo() {
       filePath = levels[i]->getPath();
 
       filePath = scene->decodeFilePath(filePath);
-      if (!TSystem::doesExistFileOrLevel(filePath)) {
+      if (TSystem::doesExistFileOrLevel(filePath))
+        showFileInfoPanel(filePath);
+      else {
         error(
             tr("It is not possible to show the info of the selected file, as "
                "the file has not been saved yet."));
-      } else {
-        InfoViewer *infoViewer = 0;
-        infoViewer             = new InfoViewer(this);
-        infoViewer->setItem(0, 0, filePath);
       }
     }
   }

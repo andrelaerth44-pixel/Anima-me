@@ -17,6 +17,7 @@
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
 #include "toonzqt/icongenerator.h"
+#include "toonzqt/infoviewer.h"
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/trepetitionguard.h"
@@ -26,14 +27,18 @@
 #include "toonz/toonzscene.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshsoundlevel.h"
-#include "toonz/tproject.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/namebuilder.h"
 #include "toonz/toonzimageutils.h"
+#include "toonzqt/imageutils.h"
 #include "toonz/preferences.h"
+#include "toonz/toonzfolders.h"
 
 // TnzBase includes
+#include "tfiletype.h"
 #include "tenv.h"
+
+#include <functional>
 
 // TnzCore includes
 #include "tsystem.h"
@@ -47,11 +52,14 @@
 #include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QDragLeaveEvent>
+#include <QResizeEvent>
 #include <QBoxLayout>
 #include <QLabel>
 #include <QByteArray>
 #include <QMenu>
 #include <QDateTime>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QInputDialog>
 #include <QDesktopServices>
 #include <QDirModel>
@@ -59,8 +67,10 @@
 #include <QPixmap>
 #include <QUrl>
 #include <QScrollBar>
+#include <QScrollArea>
 #include <QMap>
 #include <QPushButton>
+#include <QToolButton>
 #include <QPalette>
 #include <QCheckBox>
 #include <QMutex>
@@ -73,6 +83,9 @@
 #include <QTreeWidgetItem>
 #include <QSplitter>
 #include <QFileSystemWatcher>
+#include <QHash>
+#include <QTimer>
+#include <QSettings>
 
 // tcg includes
 #include "tcg/boost/range_utility.h"
@@ -84,9 +97,193 @@
 #include <boost/range/adaptor/transformed.hpp>
 
 // C++ includes
+#include <algorithm>
 #include <memory>  // std::unique_ptr, std::make_unique
 
 namespace ba = boost::adaptors;
+
+namespace {
+
+//! Theme SVG at \p size (cached).
+QPixmap browserThemeSvgIcon(const QString &iconName, const QSize &size) {
+  static QHash<QString, QPixmap> cache;
+  const QString key = iconName + QLatin1Char('@') +
+                      QString::number(size.width()) + QLatin1Char('x') +
+                      QString::number(size.height());
+  const auto it = cache.constFind(key);
+  if (it != cache.cend()) return it.value();
+  QPixmap pm = svgToPixmap(getIconPath(iconName), size, Qt::KeepAspectRatio,
+                           Qt::transparent);
+  cache.insert(key, pm);
+  return pm;
+}
+
+}  // namespace
+
+//=============================================================================
+//    BrowserFileSettings
+//-----------------------------------------------------------------------------
+
+BrowserFileSettings *BrowserFileSettings::instance() {
+  static BrowserFileSettings _instance;
+  return &_instance;
+}
+
+BrowserFileSettings::BrowserFileSettings() {}
+
+void BrowserFileSettings::ensureLoaded() {
+  static bool loaded = false;
+  if (loaded) return;
+  loaded = true;
+  load();
+}
+
+QString BrowserFileSettings::pathKey(const TFilePath &path) {
+  return path.getQString();
+}
+
+void BrowserFileSettings::load() {
+  m_bgOverrides.clear();
+  m_favorites.clear();
+  m_pinnedFolders.clear();
+  const TFilePath fp =
+      ToonzFolder::getMyModuleDir() + TFilePath("BrowserFileSettings.ini");
+  QSettings settings(toQString(fp), QSettings::IniFormat);
+  settings.beginGroup(QStringLiteral("ThumbnailBg"));
+  const QStringList paths = settings.childKeys();
+  for (const QString &key : paths) {
+    bool ok     = false;
+    const int v = settings.value(key).toInt(&ok);
+    if (ok) m_bgOverrides.insert(key, v);
+  }
+  settings.endGroup();
+  for (const QVariant &v : settings.value(QStringLiteral("Favorites")).toList())
+    m_favorites.insert(v.toString());
+  for (const QVariant &v :
+       settings.value(QStringLiteral("PinnedFolders")).toList()) {
+    const QString s = v.toString();
+    if (!s.isEmpty() && !m_pinnedFolders.contains(s)) m_pinnedFolders.append(s);
+  }
+}
+
+void BrowserFileSettings::save() const {
+  const TFilePath fp =
+      ToonzFolder::getMyModuleDir() + TFilePath("BrowserFileSettings.ini");
+  QSettings settings(toQString(fp), QSettings::IniFormat);
+  settings.remove(QString());
+  settings.beginGroup(QStringLiteral("ThumbnailBg"));
+  for (auto it = m_bgOverrides.constBegin(); it != m_bgOverrides.constEnd();
+       ++it)
+    settings.setValue(it.key(), it.value());
+  settings.endGroup();
+  QStringList favList = m_favorites.values();
+  favList.sort();
+  QList<QVariant> favVar;
+  for (const QString &s : favList) favVar.append(s);
+  settings.setValue(QStringLiteral("Favorites"), favVar);
+  QList<QVariant> pinVar;
+  for (const QString &s : m_pinnedFolders) pinVar.append(s);
+  settings.setValue(QStringLiteral("PinnedFolders"), pinVar);
+}
+
+int BrowserFileSettings::thumbnailBgOverride(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  const auto it = m_bgOverrides.constFind(pathKey(path));
+  return it == m_bgOverrides.constEnd() ? -1 : it.value();
+}
+
+void BrowserFileSettings::setThumbnailBgOverride(const TFilePath &path,
+                                                 int mode) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (mode < 0)
+    m_bgOverrides.remove(key);
+  else
+    m_bgOverrides.insert(key, mode);
+  save();
+}
+
+void BrowserFileSettings::clearThumbnailBgOverride(const TFilePath &path) {
+  setThumbnailBgOverride(path, -1);
+}
+
+bool BrowserFileSettings::isFavorite(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_favorites.contains(pathKey(path));
+}
+
+void BrowserFileSettings::setFavorite(const TFilePath &path, bool on) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (on)
+    m_favorites.insert(key);
+  else
+    m_favorites.remove(key);
+  save();
+}
+
+void BrowserFileSettings::toggleFavorite(const TFilePath &path) {
+  setFavorite(path, !isFavorite(path));
+}
+
+bool BrowserFileSettings::isPinnedFolder(const TFilePath &path) const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_pinnedFolders.contains(pathKey(path));
+}
+
+void BrowserFileSettings::setPinnedFolder(const TFilePath &path, bool on) {
+  ensureLoaded();
+  const QString key = pathKey(path);
+  if (key.isEmpty()) return;
+  if (on) {
+    if (!m_pinnedFolders.contains(key)) m_pinnedFolders.append(key);
+  } else
+    m_pinnedFolders.removeAll(key);
+  save();
+}
+
+QStringList BrowserFileSettings::pinnedFolders() const {
+  BrowserFileSettings::instance()->ensureLoaded();
+  return m_pinnedFolders;
+}
+
+//-----------------------------------------------------------------------------
+
+bool supportsBrowserThumbnailCustomization(const TFilePath &path) {
+  if (TFileStatus(path).isDirectory()) return false;
+  const TFileType::Type type = TFileType::getInfo(path);
+  return TFileType::isViewable(type) || TFileType::isScene(type);
+}
+
+//-----------------------------------------------------------------------------
+
+bool supportsBrowserFavorites(const TFilePath &path) {
+  if (TFileStatus(path).isDirectory()) return false;
+  const TFileType::Type type = TFileType::getInfo(path);
+  return TFileType::isViewable(type) || TFileType::isScene(type) ||
+         TFileType::isLevel(type);
+}
+
+//-----------------------------------------------------------------------------
+
+void appendThumbnailBackgroundMenu(
+    QMenu *parentMenu, const std::function<void(int)> &onModeSelected) {
+  QMenu *bgMenu = parentMenu->addMenu(QObject::tr("Thumbnail Background"));
+  auto addBgAct = [&](const char *iconName, const QString &label, int mode) {
+    QAction *a = iconName ? bgMenu->addAction(createQIcon(iconName), label)
+                          : bgMenu->addAction(label);
+    QObject::connect(a, &QAction::triggered, parentMenu,
+                     [onModeSelected, mode]() { onModeSelected(mode); });
+  };
+  addBgAct(nullptr, QObject::tr("Use Default"), -1);
+  bgMenu->addSeparator();
+  addBgAct("browser_preview_white", QObject::tr("White Background"), 1);
+  addBgAct("browser_preview_black", QObject::tr("Black Background"), 2);
+  addBgAct("browser_preview_transparency",
+           QObject::tr("Transparent Background"), 0);
+  addBgAct("browser_preview_checkboard", QObject::tr("Checkered Background"),
+           3);
+}
 
 using namespace DVGui;
 
@@ -139,6 +336,20 @@ std::set<FileBrowser *> activeBrowsers;
 std::map<TFilePath, FCData> frameCountMap;
 QMutex frameCountMapMutex;
 QMutex levelFileMutex;
+TEnv::IntVar BrowserInfoPanelVisible("BrowserInfoPanelVisible", 0);
+TEnv::IntVar BrowserInfoPanelWidth("BrowserInfoPanelWidth", 220);
+
+QPixmap peekAnyBgIcon(const TFilePath &fp, const TDimension &dim,
+                      const TFrameId &fid, int preferBg) {
+  QPixmap px = IconGenerator::instance()->peekSizedIcon(fp, dim, fid, preferBg);
+  if (!px.isNull()) return px;
+  for (int m = 0; m <= (int)DvItemViewerPanel::BgAuto; ++m) {
+    if (m == preferBg) continue;
+    px = IconGenerator::instance()->peekSizedIcon(fp, dim, fid, m);
+    if (!px.isNull()) return px;
+  }
+  return QPixmap();
+}
 }  // namespace
 
 //=============================================================================
@@ -162,6 +373,7 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   DvItemViewerTitleBar *titleBar = new DvItemViewerTitleBar(m_itemViewer, box);
   DvItemViewerButtonBar *buttonBar =
       new DvItemViewerButtonBar(m_itemViewer, box);
+  m_buttonBar                    = buttonBar;
   DvItemViewerPanel *viewerPanel = m_itemViewer->getPanel();
 
   viewerPanel->addColumn(DvItemListModel::FileType, 50);
@@ -176,6 +388,88 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   DVItemViewPlayDelegate *itemViewPlayDelegate =
       new DVItemViewPlayDelegate(viewerPanel);
   viewerPanel->setItemViewPlayDelegate(itemViewPlayDelegate);
+
+  connect(viewerPanel, &DvItemViewerPanel::thumbnailBgModeChanged, this,
+          [this](int) {
+            if (m_infoCurrentPath != TFilePath())
+              updateInfoThumbnail(m_infoCurrentPath);
+          });
+
+  m_itemsSplitter = new QSplitter(Qt::Horizontal, box);
+  m_itemsSplitter->setObjectName("FileBrowserItemsSplitter");
+  m_itemsSplitter->setChildrenCollapsible(false);
+
+  m_infoScrollArea = new QScrollArea(m_itemsSplitter);
+  m_infoScrollArea->setObjectName("FileBrowserInfoScroll");
+  m_infoScrollArea->setWidgetResizable(true);
+  m_infoScrollArea->setFrameShape(QFrame::NoFrame);
+  m_infoScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_infoScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_infoScrollArea->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+  m_infoScrollArea->setMinimumWidth(140);
+  m_infoScrollArea->setSizePolicy(QSizePolicy::Preferred,
+                                  QSizePolicy::Expanding);
+
+  m_infoPanelHost = new QWidget();
+  m_infoPanelHost->setMinimumWidth(0);
+  m_infoPanelHost->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  auto *infoPanelLayout = new QVBoxLayout(m_infoPanelHost);
+  infoPanelLayout->setContentsMargins(0, 0, 0, 0);
+  infoPanelLayout->setSpacing(0);
+  infoPanelLayout->setAlignment(Qt::AlignTop);
+
+  auto *thumbHeader = new QHBoxLayout();
+  thumbHeader->setContentsMargins(4, 4, 4, 0);
+  thumbHeader->setSpacing(2);
+  m_thumbCollapseBtn = new QToolButton();
+  m_thumbCollapseBtn->setArrowType(Qt::DownArrow);
+  m_thumbCollapseBtn->setFixedSize(16, 16);
+  m_thumbCollapseBtn->setAutoRaise(true);
+  m_thumbCollapseBtn->setToolTip(tr("Show/Hide Thumbnail"));
+  thumbHeader->addWidget(m_thumbCollapseBtn);
+  thumbHeader->addStretch();
+  infoPanelLayout->addLayout(thumbHeader);
+
+  m_infoThumbnail = new QLabel();
+  m_infoThumbnail->setAlignment(Qt::AlignCenter);
+  m_infoThumbnail->setMinimumHeight(20);
+  m_infoThumbnail->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  infoPanelLayout->addWidget(m_infoThumbnail, 0, Qt::AlignTop);
+
+  connect(m_thumbCollapseBtn, &QToolButton::clicked, this, [this]() {
+    m_infoThumbVisible = !m_infoThumbVisible;
+    m_infoThumbnail->setVisible(m_infoThumbVisible);
+    m_thumbCollapseBtn->setArrowType(m_infoThumbVisible ? Qt::DownArrow
+                                                        : Qt::RightArrow);
+  });
+
+  m_infoViewer = new InfoViewer();
+  infoPanelLayout->addWidget(m_infoViewer, 0, Qt::AlignTop);
+  m_infoViewer->setEmbedded(true);
+  connect(m_infoViewer, &InfoViewer::currentFrameChanged, this, [this]() {
+    if (m_infoCurrentPath != TFilePath())
+      updateInfoThumbnail(m_infoCurrentPath);
+  });
+
+  connect(IconGenerator::instance(), &IconGenerator::iconGenerated, this,
+          &FileBrowser::onIconGenerated);
+
+  m_infoScrollArea->setWidget(m_infoPanelHost);
+
+  // Right-click → Hide (when the Advanced Info button is unavailable).
+  auto wireInfoHideMenu = [this](QWidget *w) {
+    if (!w) return;
+    w->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(w, &QWidget::customContextMenuRequested, this,
+            &FileBrowser::onInfoPanelContextMenu, Qt::UniqueConnection);
+  };
+  wireInfoHideMenu(m_infoScrollArea);
+  wireInfoHideMenu(m_infoScrollArea->viewport());
+  for (QWidget *w : m_infoScrollArea->findChildren<QWidget *>())
+    wireInfoHideMenu(w);
+
+  connect(m_itemsSplitter, &QSplitter::splitterMoved, this,
+          &FileBrowser::onItemsSplitterMoved);
 
   m_mainSplitter->setObjectName("FileBrowserSplitter");
   m_folderTreeView->setObjectName("DirTreeView");
@@ -206,7 +500,12 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
     boxLayout->setSpacing(0);
     {
       boxLayout->addWidget(titleBar, 0);
-      boxLayout->addWidget(m_itemViewer, 1);
+      m_itemsSplitter->addWidget(m_itemViewer);
+      m_itemsSplitter->addWidget(m_infoScrollArea);
+      m_infoScrollArea->setVisible(false);
+      m_itemsSplitter->setStretchFactor(0, 1);
+      m_itemsSplitter->setStretchFactor(1, 0);
+      boxLayout->addWidget(m_itemsSplitter, 1);
     }
     m_mainSplitter->addWidget(box);
     mainLayout->addWidget(m_mainSplitter, 1);
@@ -230,12 +529,24 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
           &FileBrowser::folderUp);
   connect(buttonBar, &DvItemViewerButtonBar::newFolder, this,
           &FileBrowser::newFolder);
+  connect(buttonBar, &DvItemViewerButtonBar::searchFilterChanged, this,
+          &FileBrowser::onSearchFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::typeFilterChanged, this,
+          &FileBrowser::onTypeFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::favoritesFilterChanged, this,
+          &FileBrowser::onFavoritesFilterChanged);
+  connect(buttonBar, &DvItemViewerButtonBar::projectFolderTriggered, this,
+          [this](const TFilePath &fp) { setFolder(fp, true); });
+  if (QAction *infoAct = buttonBar->infoPanelAction()) {
+    connect(infoAct, SIGNAL(triggered(bool)), this,
+            SLOT(onInfoPanelActionTriggered(bool)));
+  }
 
   connect(&m_frameCountReader, &FrameCountReader::calculatedFrameCount,
           m_itemViewer->getPanel(), qOverload<>(&DvItemViewerPanel::update));
 
   QAction *refresh = CommandManager::instance()->getAction(MI_RefreshTree);
-  connect(refresh, &QAction::triggered, this, &FileBrowser::refresh);
+  connect(refresh, SIGNAL(triggered()), this, SLOT(refresh()));
   addAction(refresh);
 
   // Version Control instance connection
@@ -271,11 +582,55 @@ FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
   m_currentPosition = 0;
 
   refreshHistoryButtons();
+
+  if (BrowserInfoPanelVisible) {
+    buttonBar->setInfoPanelChecked(true);
+    setInfoPanelVisible(true);
+  }
+
+  connect(TApp::instance()->getCurrentScene(), &TSceneHandle::sceneSwitched,
+          buttonBar, &DvItemViewerButtonBar::refreshProjectFolderShortcuts);
+  buttonBar->refreshProjectFolderShortcuts();
 }
 
 //-----------------------------------------------------------------------------
 
 FileBrowser::~FileBrowser() = default;  // all child widgets are auto-deleted
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::save(QSettings &settings) const {
+  if (m_mainSplitter)
+    settings.setValue("treeSplitterState", m_mainSplitter->saveState());
+  settings.setValue("infoPanelVisible", m_infoPanelVisible ? 1 : 0);
+  int infoW = (int)BrowserInfoPanelWidth;
+  if (m_infoPanelVisible && m_itemsSplitter) {
+    const QList<int> sizes = m_itemsSplitter->sizes();
+    if (sizes.size() == 2 && sizes[1] > 0) infoW = sizes[1];
+  }
+  if (infoW > 0) settings.setValue("infoPanelWidth", infoW);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::load(QSettings &settings) {
+  if (m_mainSplitter) {
+    const QByteArray state = settings.value("treeSplitterState").toByteArray();
+    if (!state.isEmpty()) m_mainSplitter->restoreState(state);
+  }
+  if (settings.contains("infoPanelWidth")) {
+    const int w = settings.value("infoPanelWidth").toInt();
+    if (w >= 140) BrowserInfoPanelWidth = w;
+  }
+  if (settings.contains("infoPanelVisible")) {
+    const bool vis = settings.value("infoPanelVisible").toInt() != 0;
+    if (m_buttonBar) m_buttonBar->setInfoPanelChecked(vis);
+    if (m_infoPanelVisible != vis)
+      setInfoPanelVisible(vis);
+    else if (vis)
+      applyInfoPanelSize();
+  }
+}
 
 //-----------------------------------------------------------------------------
 
@@ -490,6 +845,11 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
     setIsDiscendentOrder(isDiscendent);
   }
 
+  // Folders stay above files after sorting.
+  storePersistedSelection();
+  pinFoldersFirst();
+  restorePersistedSelection();
+
   m_itemViewer->getPanel()->update();
 }
 
@@ -651,12 +1011,9 @@ void FileBrowser::refreshCurrentFolderItems() {
       }
     }
   }
-  // update the ordering rules
-  bool discendentOrder     = isDiscendentOrder();
-  DataType currentDataType = getCurrentOrderType();
-  setOrderType(Name);
-  setIsDiscendentOrder(true);
-  sortByDataModel(currentDataType, discendentOrder);
+  // Keep the full listing, then apply name/type/favorites filters.
+  m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -761,13 +1118,8 @@ void FileBrowser::setUnregisteredFolder(const TFilePath &fp) {
   // paths(m_path)
   refreshData();
 
-  // update the ordering rules
-  bool discendentOrder     = isDiscendentOrder();
-  DataType currentDataType = getCurrentOrderType();
-  setOrderType(Name);
-  setIsDiscendentOrder(true);
-  sortByDataModel(currentDataType, discendentOrder);
-
+  m_folderItems = m_items;
+  applyNameFilter();
   m_itemViewer->repaint();
 }
 
@@ -787,6 +1139,8 @@ void FileBrowser::setHistoryDay(std::string dayDateString) {
     for (const TFilePath &it : files) m_items.emplace_back(it);
   }
   refreshData();
+  m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -879,28 +1233,62 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     else
       return item.m_name;
   } else if (dataType == Thumbnail) {
-    QSize iconSize = m_itemViewer->getPanel()->getIconSize();
-    // parent folder icons
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    QSize iconSize           = panel->getIconSize();
+    QSize renderSize         = panel->getRenderIconSize();
+    // Folder icons: render SVG at the live cell size.
     if (item.m_path == m_folder.getParentDir()) {
-      static QPixmap folderUpPixmap(getIconPath("folder_browser_up"));
-      return folderUpPixmap;
-    }
-    // folder icons
-    else if (item.m_isFolder) {
-      if (item.m_isLink) {
-        static QPixmap folderLinkPixmap(getIconPath("folder_browser_link"));
-        return folderLinkPixmap;
-      } else {
-        static QPixmap folderPixmap(getIconPath("folder_browser"));
-        return folderPixmap;
-      }
+      return browserThemeSvgIcon(QStringLiteral("folder_browser_up"), iconSize);
+    } else if (item.m_isFolder) {
+      if (item.m_isLink)
+        return browserThemeSvgIcon(QStringLiteral("folder_browser_link"),
+                                   iconSize);
+      return browserThemeSvgIcon(QStringLiteral("folder_browser"), iconSize);
     }
 
-    QPixmap pixmap = IconGenerator::instance()->getIcon(item.m_path);
+    // Request committed renderSize; peek previous size while it generates.
+    QPixmap pixmap;
+    const int bgMode = [&]() {
+      int mode =
+          panel->isAdvancedDisplay() ? (int)panel->getThumbnailBgMode() : 0;
+      if (panel->isAdvancedDisplay() &&
+          supportsBrowserThumbnailCustomization(item.m_path)) {
+        const int ov =
+            BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+        if (ov >= 0) mode = ov;
+      }
+      return mode;
+    }();
+    if (panel->isAdvancedDisplay() && renderSize.width() > 0 &&
+        renderSize.height() > 0) {
+      const qreal dpr = qMax(1.0, panel->devicePixelRatioF());
+      const TDimension phys =
+          TDimension(qMax(1, qRound(renderSize.width() * dpr)),
+                     qMax(1, qRound(renderSize.height() * dpr)));
+      pixmap = IconGenerator::instance()->getSizedIcon(
+          item.m_path, phys, TFrameId::NO_FRAME, bgMode);
+      if (pixmap.isNull()) {
+        const QSize prev = panel->getPrevRenderIconSize();
+        if (prev.width() > 0 && prev.height() > 0 && prev != renderSize) {
+          pixmap =
+              peekAnyBgIcon(item.m_path,
+                            TDimension(qMax(1, qRound(prev.width() * dpr)),
+                                       qMax(1, qRound(prev.height() * dpr))),
+                            TFrameId::NO_FRAME, bgMode);
+        }
+      }
+      if (pixmap.isNull()) {
+        pixmap = peekAnyBgIcon(item.m_path, phys, TFrameId::NO_FRAME, bgMode);
+      }
+      if (!pixmap.isNull() && dpr > 1.0) pixmap.setDevicePixelRatio(dpr);
+    }
+    if (pixmap.isNull())
+      pixmap = IconGenerator::instance()->getIcon(item.m_path);
     if (pixmap.isNull()) {
       pixmap = QPixmap(iconSize);
-      pixmap.fill(Qt::white);
+      pixmap.fill(Qt::transparent);
     }
+    if (panel->isAdvancedDisplay()) return pixmap;
     return scalePixmapKeepingAspectRatio(pixmap, iconSize, Qt::transparent);
   } else if (dataType == Icon)
     return QVariant();
@@ -909,6 +1297,16 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
 
   else if (dataType == IsFolder)
     return item.m_isFolder;
+  else if (dataType == IsFavorite)
+    return supportsBrowserFavorites(item.m_path) &&
+           BrowserFileSettings::instance()->isFavorite(item.m_path);
+  else if (dataType == ThumbnailBg) {
+    if (!supportsBrowserThumbnailCustomization(item.m_path)) return QVariant();
+    const int ov =
+        BrowserFileSettings::instance()->thumbnailBgOverride(item.m_path);
+    if (ov >= 0) return ov;
+    return QVariant();
+  }
 
   if (!item.m_validInfo) {
     readInfo(item);
@@ -963,7 +1361,213 @@ bool FileBrowser::canRenameItem(int index) const {
 int FileBrowser::findIndexWithPath(TFilePath path) {
   for (int i = 0; i < (int)m_items.size(); ++i)
     if (m_items[i].m_path == path) return i;
+#ifdef _WIN32
+  // Windows paths are case-insensitive; FullPath casing may differ after
+  // refresh.
+  const QString target =
+      QString::fromStdWString(path.getWideString()).toLower();
+  for (int i = 0; i < (int)m_items.size(); ++i) {
+    if (QString::fromStdWString(m_items[i].m_path.getWideString()).toLower() ==
+        target)
+      return i;
+  }
+#endif
   return -1;
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::storePersistedSelection() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  // Ignore empty clears so a later restore still has paths.
+  if (!fs || fs->isEmpty()) return;
+  const std::set<int> &indices = fs->getSelectedIndices();
+  std::vector<TFilePath> paths;
+  paths.reserve(indices.size());
+  for (int idx : indices) {
+    if (idx < 0 || idx >= (int)m_items.size()) continue;
+    paths.push_back(m_items[idx].m_path);
+  }
+  if (!paths.empty()) m_persistedSelection.swap(paths);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::restorePersistedSelection() {
+  if (m_persistedSelection.empty()) return;
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+
+  std::vector<int> indices;
+  indices.reserve(m_persistedSelection.size());
+  for (const TFilePath &fp : m_persistedSelection) {
+    const int idx = findIndexWithPath(fp);
+    if (idx >= 0) indices.push_back(idx);
+  }
+  if (indices.empty()) return;
+  fs->select(&indices.front(), (int)indices.size());
+  fs->makeCurrent();
+  m_itemViewer->getPanel()->update();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::pinFoldersFirst() {
+  if (m_items.empty()) return;
+
+  Item parent;
+  bool hasParent = false;
+  std::vector<Item> folders, files;
+  folders.reserve(m_items.size());
+  files.reserve(m_items.size());
+
+  for (const Item &item : m_items) {
+    if (!m_folder.isEmpty() && item.m_path == m_folder.getParentDir()) {
+      parent    = item;
+      hasParent = true;
+    } else if (item.m_isFolder) {
+      folders.push_back(item);
+    } else {
+      files.push_back(item);
+    }
+  }
+
+  std::stable_sort(folders.begin(), folders.end(),
+                   [](const Item &a, const Item &b) {
+                     return QString::localeAwareCompare(a.m_name, b.m_name) < 0;
+                   });
+
+  m_items.clear();
+  if (hasParent) m_items.push_back(parent);
+  m_items.insert(m_items.end(), folders.begin(), folders.end());
+  m_items.insert(m_items.end(), files.begin(), files.end());
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::applyNameFilter() {
+  storePersistedSelection();
+  if (FileSelection *fs = dynamic_cast<FileSelection *>(
+          m_itemViewer->getPanel()->getSelection()))
+    fs->selectNone();
+
+  m_items.clear();
+  m_items.reserve(m_folderItems.size());
+
+  for (const Item &item : m_folderItems) {
+    const bool isParent =
+        !m_folder.isEmpty() && item.m_path == m_folder.getParentDir();
+    const bool isFolder = isParent || item.m_isFolder;
+
+    const QString name =
+        item.m_name.isEmpty()
+            ? QString::fromStdWString(item.m_path.getLevelNameW())
+            : item.m_name;
+
+    // ".." entry is always shown; other folders follow the name filter.
+    if (isFolder) {
+      if (!isParent && !m_nameFilter.isEmpty() &&
+          !name.contains(m_nameFilter, Qt::CaseInsensitive))
+        continue;
+      m_items.push_back(item);
+      continue;
+    }
+
+    if (!m_typeFilter.isEmpty()) {
+      const QString ext =
+          QString::fromStdString(item.m_path.getType()).toUpper();
+      if (!m_typeFilter.contains(ext)) continue;
+    }
+
+    if (!m_nameFilter.isEmpty() &&
+        !name.contains(m_nameFilter, Qt::CaseInsensitive))
+      continue;
+
+    if (m_favoritesOnly &&
+        !BrowserFileSettings::instance()->isFavorite(item.m_path))
+      continue;
+
+    m_items.push_back(item);
+  }
+
+  bool discendentOrder     = isDiscendentOrder();
+  DataType currentDataType = getCurrentOrderType();
+  setOrderType(Name);
+  setIsDiscendentOrder(true);
+  sortByDataModel(currentDataType, discendentOrder);
+
+  restorePersistedSelection();
+  if (m_itemViewer) {
+    m_itemViewer->updateContentSize();
+    m_itemViewer->refresh();
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onSearchFilterChanged(const QString &text) {
+  m_nameFilter = text.trimmed();
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onFavoritesFilterChanged(bool on) {
+  m_favoritesOnly = on;
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::setSelectedThumbnailBg(int mode) {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (!supportsBrowserThumbnailCustomization(fp)) continue;
+    if (mode < 0)
+      BrowserFileSettings::instance()->clearThumbnailBgOverride(fp);
+    else
+      BrowserFileSettings::instance()->setThumbnailBgOverride(fp, mode);
+  }
+  updateItemViewerPanel();
+  if (m_infoCurrentPath != TFilePath()) updateInfoThumbnail(m_infoCurrentPath);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::toggleSelectedFavorite() {
+  FileSelection *fs =
+      dynamic_cast<FileSelection *>(m_itemViewer->getPanel()->getSelection());
+  if (!fs) return;
+  std::vector<TFilePath> files;
+  fs->getSelectedFiles(files);
+  for (const TFilePath &fp : files) {
+    if (!supportsBrowserFavorites(fp)) continue;
+    BrowserFileSettings::instance()->toggleFavorite(fp);
+  }
+  if (m_favoritesOnly)
+    applyNameFilter();
+  else
+    updateItemViewerPanel();
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onTypeFilterChanged(const QStringList &extensions) {
+  m_typeFilter.clear();
+  for (const QString &ext : extensions) {
+    const QString u = ext.trimmed().toUpper();
+    if (!u.isEmpty()) m_typeFilter.insert(u);
+  }
+  if (m_folderItems.empty() && !m_items.empty()) m_folderItems = m_items;
+  applyNameFilter();
 }
 
 //-----------------------------------------------------------------------------
@@ -1176,21 +1780,29 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
         break;
     }
     if (j == (int)files.size()) {
+      bool allRescalable = true;
+      for (const TFilePath &f : files) {
+        if (!ImageUtils::isRescalable(f)) {
+          allRescalable = false;
+          break;
+        }
+      }
+      if (allRescalable && files[0].getType() != "pli")
+        menu->addAction(cm->getAction(MI_RescaleFiles));
       menu->addAction(cm->getAction(MI_ConvertFiles));
-      // iwsw commented out temporarily
-      // menu->addAction(cm->getAction(MI_ToonShadedImageToTLV));
     }
     if (areFullcolor) menu->addAction(cm->getAction(MI_SeparateColors));
 
+    if (files.size() == 1 && files[0].getType() != "tnz") {
+      QAction *action =
+          menu->addAction(QIcon(createQIcon("rename")), tr("Rename"));
+      connect(action, &QAction::triggered, this,
+              &FileBrowser::renameAsToonzLevel);
+    }
+
     if (!areFullcolor) menu->addSeparator();
   }
-  if (files.size() == 1 && files[0].getType() != "tnz") {
-    QAction *action =
-        menu->addAction(QIcon(createQIcon("rename")), tr("Rename"));
-    connect(action, &QAction::triggered, this,
-            &FileBrowser::renameAsToonzLevel);
-    menu->addAction(action);
-  }
+
 #ifdef LEVO
 
   if (files.size() == 2 &&
@@ -1389,6 +2001,42 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
   if (!Preferences::instance()->isWatchFileSystemEnabled()) {
     menu->addSeparator();
     menu->addAction(cm->getAction(MI_RefreshTree));
+  }
+
+  {
+    bool hasThumbItem = false;
+    bool hasFavItem   = false;
+    for (const TFilePath &f : files) {
+      if (supportsBrowserThumbnailCustomization(f)) hasThumbItem = true;
+      if (supportsBrowserFavorites(f)) hasFavItem = true;
+    }
+    DvItemViewerPanel *panel = m_itemViewer->getPanel();
+    if (panel && panel->isAdvancedDisplay() && (hasThumbItem || hasFavItem)) {
+      menu->addSeparator();
+      if (hasThumbItem) {
+        appendThumbnailBackgroundMenu(
+            menu.get(), [this](int mode) { setSelectedThumbnailBg(mode); });
+      }
+
+      if (hasFavItem) {
+        bool allFav = !files.empty();
+        for (const TFilePath &f : files) {
+          if (!supportsBrowserFavorites(f)) {
+            allFav = false;
+            break;
+          }
+          if (!BrowserFileSettings::instance()->isFavorite(f)) {
+            allFav = false;
+            break;
+          }
+        }
+        QAction *favAct = menu->addAction(
+            createQIcon("star"),
+            allFav ? tr("Remove from Favorites") : tr("Add to Favorites"));
+        connect(favAct, &QAction::triggered, this,
+                &FileBrowser::toggleSelectedFavorite);
+      }
+    }
   }
 
   return menu.release();
@@ -2045,22 +2693,246 @@ void FileBrowser::convertToPaintedTlv() {
 
 //-----------------------------------------------------------------------------
 
+bool FileBrowser::getInfoPanelFile(TFilePath &path) const {
+  const FileSelection *fs = dynamic_cast<const FileSelection *>(
+      m_itemViewer->getPanel()->getSelection());
+  if (!fs || fs->isEmpty()) return false;
+
+  for (int idx : fs->getSelectedIndices()) {
+    if (idx < 0 || idx >= (int)m_items.size()) continue;
+    if (m_items[idx].m_isFolder || m_items[idx].m_name == QStringLiteral(".."))
+      continue;
+    path = m_items[idx].m_path;
+    return true;
+  }
+  return false;
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::applyInfoPanelSize() {
+  if (!m_itemsSplitter || !m_infoPanelVisible) return;
+  QList<int> sizes = m_itemsSplitter->sizes();
+  if (sizes.size() != 2) return;
+  const int total = sizes[0] + sizes[1];
+  if (total < 80) return;
+  int infoWidth = (int)BrowserInfoPanelWidth;
+  if (infoWidth < 140) infoWidth = 220;
+  infoWidth = qMin(infoWidth, qMax(140, total - 80));
+  sizes[0]  = total - infoWidth;
+  sizes[1]  = infoWidth;
+  m_itemsSplitter->setSizes(sizes);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::setInfoPanelVisible(bool visible) {
+  if (!m_infoScrollArea || !m_itemsSplitter) return;
+  if (m_infoPanelVisible == visible) return;
+
+  m_infoPanelVisible      = visible;
+  BrowserInfoPanelVisible = visible ? 1 : 0;
+  m_infoScrollArea->setVisible(visible);
+
+  QList<int> sizes = m_itemsSplitter->sizes();
+  if (sizes.size() == 2) {
+    const int total = sizes[0] + sizes[1];
+    if (visible) {
+      applyInfoPanelSize();
+      if (total < 80)
+        QTimer::singleShot(0, this, [this]() { applyInfoPanelSize(); });
+    } else if (sizes[1] > 0) {
+      BrowserInfoPanelWidth = sizes[1];
+      m_itemsSplitter->setSizes({total, 0});
+    }
+  }
+
+  if (m_buttonBar) {
+    m_buttonBar->setInfoPanelChecked(visible);
+    m_buttonBar->setInfoPanelEnabled(true);
+  }
+  if (visible) {
+    QTimer::singleShot(0, this, &FileBrowser::refreshInfoPanelFromSelection);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onItemsSplitterMoved(int, int) {
+  if (!m_itemsSplitter || !m_infoPanelVisible) return;
+  QList<int> sizes = m_itemsSplitter->sizes();
+  if (sizes.size() == 2 && sizes[1] > 0) BrowserInfoPanelWidth = sizes[1];
+
+  // Re-render if the panel is wider than the cached size.
+  if (m_infoThumbnail && m_infoCurrentPath != TFilePath() &&
+      !m_infoThumbReqSize.isEmpty()) {
+    const int wanted =
+        (int)(infoThumbPanelWidth() * m_infoThumbnail->devicePixelRatioF());
+    if (wanted > m_infoThumbReqSize.width()) {
+      updateInfoThumbnail(m_infoCurrentPath);
+    } else {
+      // Re-fit from cache while dragging the splitter.
+      QPixmap src = IconGenerator::instance()->peekSizedIcon(
+          m_infoCurrentPath,
+          TDimension(m_infoThumbReqSize.width(), m_infoThumbReqSize.height()));
+      if (!src.isNull()) setInfoThumbnailPixmap(src);
+    }
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onInfoPanelActionTriggered(bool on) {
+  setInfoPanelVisible(on);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onInfoPanelContextMenu(const QPoint &pos) {
+  QWidget *w = qobject_cast<QWidget *>(sender());
+  if (!w || !m_infoPanelVisible) return;
+
+  QMenu menu(this);
+  QAction *hideAct = menu.addAction(tr("Hide"));
+  if (menu.exec(w->mapToGlobal(pos)) == hideAct) setInfoPanelVisible(false);
+}
+
+//-----------------------------------------------------------------------------
+
+int FileBrowser::infoThumbPanelWidth() const {
+  int panelW =
+      m_infoScrollArea ? m_infoScrollArea->viewport()->width() - 8 : 160;
+  return qMax(60, panelW);
+}
+
+//-----------------------------------------------------------------------------
+
+int FileBrowser::infoThumbBgMode() const {
+  DvItemViewerPanel *panel = m_itemViewer ? m_itemViewer->getPanel() : nullptr;
+  if (!panel || !panel->isAdvancedDisplay()) return 0;
+  int mode = (int)panel->getThumbnailBgMode();
+  if (m_infoCurrentPath != TFilePath() &&
+      supportsBrowserThumbnailCustomization(m_infoCurrentPath)) {
+    const int ov =
+        BrowserFileSettings::instance()->thumbnailBgOverride(m_infoCurrentPath);
+    if (ov >= 0) mode = ov;
+  }
+  return mode;
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::updateInfoThumbnail(const TFilePath &fp) {
+  if (!m_infoThumbnail) return;
+  if (fp == TFilePath()) {
+    m_infoCurrentPath  = fp;
+    m_infoThumbReqSize = QSize();
+    m_infoThumbnail->setPixmap(QPixmap());
+    m_infoThumbnail->setFixedHeight(0);
+    return;
+  }
+
+  const QPixmap *curPx = m_infoThumbnail->pixmap();
+  const bool hasPixmap = curPx && !curPx->isNull();
+  m_infoCurrentPath    = fp;
+
+  const double dpr = m_infoThumbnail->devicePixelRatioF();
+
+  // Snap to coarse buckets: the cache key includes the render size.
+  const int wanted   = (int)(infoThumbPanelWidth() * dpr);
+  const int bucket   = 64;
+  const int req      = qMax(128, ((wanted + bucket - 1) / bucket) * bucket);
+  m_infoThumbReqSize = QSize(req, req);
+
+  const TFrameId fid =
+      m_infoViewer ? m_infoViewer->currentFrameId() : TFrameId::NO_FRAME;
+  const TDimension dim(req, req);
+  const int bgMode = infoThumbBgMode();
+
+  QPixmap px = IconGenerator::instance()->peekSizedIcon(fp, dim, fid, bgMode);
+  if (px.isNull())
+    px = IconGenerator::instance()->getSizedIcon(fp, dim, fid, bgMode);
+  if (px.isNull()) px = peekAnyBgIcon(fp, dim, fid, bgMode);
+  if (px.isNull() && !hasPixmap)
+    px = IconGenerator::instance()->getIcon(fp, fid);
+  if (px.isNull()) return;
+
+  setInfoThumbnailPixmap(px);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::setInfoThumbnailPixmap(const QPixmap &px) {
+  if (!m_infoThumbnail || px.isNull()) return;
+  const int panelW = infoThumbPanelWidth();
+  const double dpr = m_infoThumbnail->devicePixelRatioF();
+  QPixmap scaled   = px.scaled(QSize(panelW, qMin(panelW, 200)) * dpr,
+                               Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  scaled.setDevicePixelRatio(dpr);
+  m_infoThumbnail->setPixmap(scaled);
+  m_infoThumbnail->setFixedHeight((int)(scaled.height() / dpr) + 4);
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::onIconGenerated() {
+  if (!m_infoPanelVisible || !m_infoThumbnail || !m_infoThumbVisible) return;
+  if (m_infoCurrentPath == TFilePath()) return;
+  if (m_infoThumbReqSize.isEmpty()) return;
+
+  const TFrameId fid =
+      m_infoViewer ? m_infoViewer->currentFrameId() : TFrameId::NO_FRAME;
+  const TDimension dim(m_infoThumbReqSize.width(), m_infoThumbReqSize.height());
+  const int bgMode = infoThumbBgMode();
+  QPixmap px = IconGenerator::instance()->peekSizedIcon(m_infoCurrentPath, dim,
+                                                        fid, bgMode);
+  if (px.isNull()) return;
+  if (px.isNull()) return;
+
+  setInfoThumbnailPixmap(px);
+}
+
+void FileBrowser::refreshInfoPanelFromSelection() {
+  if (!m_infoPanelVisible || !m_infoViewer) return;
+
+  TFilePath fp;
+  if (!getInfoPanelFile(fp)) return;
+  m_infoViewer->setItem(TLevelP(), nullptr, fp);
+  updateInfoThumbnail(fp);
+}
+
+//-----------------------------------------------------------------------------
+
 void FileBrowser::onSelectedItems(const std::set<int> &indexes) {
   std::set<TFilePath> filePaths;
   std::list<std::vector<TFrameId>> frameIDs;
 
   if (indexes.empty()) {
+    m_persistedSelection.clear();
     emit filePathsSelected(filePaths, frameIDs);
+    if (m_buttonBar) m_buttonBar->setInfoPanelEnabled(true);
+    if (m_infoPanelVisible) refreshInfoPanelFromSelection();
     return;
   }
 
   size_t itemsSize = m_items.size();
+  m_persistedSelection.clear();
+  m_persistedSelection.reserve(indexes.size());
+  bool hasInfoTarget = false;
   for (int idx : indexes) {
     if (idx < 0 || static_cast<size_t>(idx) >= itemsSize) continue;
 
     filePaths.insert(m_items[idx].m_path);
     frameIDs.push_back(m_items[idx].m_frameIds);
+    m_persistedSelection.push_back(m_items[idx].m_path);
+    if (!m_items[idx].m_isFolder && m_items[idx].m_name != QStringLiteral(".."))
+      hasInfoTarget = true;
   }
+
+  if (m_buttonBar) m_buttonBar->setInfoPanelEnabled(true);
+  if (m_infoPanelVisible) refreshInfoPanelFromSelection();
 
   emit filePathsSelected(filePaths, frameIDs);
 }
@@ -2071,9 +2943,11 @@ void FileBrowser::onClickedItem(int index) {
   if (0 <= index && index < (int)m_items.size()) {
     TFilePath fp = m_items[index].m_path;
     if (m_items[index].m_isFolder) {
-      setFolder(fp, true);
-      QModelIndex idx = m_folderTreeView->currentIndex();
-      if (idx.isValid()) m_folderTreeView->scrollTo(idx);
+      if (!Preferences::instance()->isFileBrowserFolderDoubleClick()) {
+        setFolder(fp, true);
+        QModelIndex idx = m_folderTreeView->currentIndex();
+        if (idx.isValid()) m_folderTreeView->scrollTo(idx);
+      }
     } else
       emit filePathClicked(fp);
   }
@@ -2082,7 +2956,6 @@ void FileBrowser::onClickedItem(int index) {
 //-----------------------------------------------------------------------------
 
 void FileBrowser::onDoubleClickedItem(int index) {
-  // TODO: Avoid duplicate code with onClickedItem().
   if (0 <= index && index < (int)m_items.size()) {
     TFilePath fp = m_items[index].m_path;
     if (m_items[index].m_isFolder) {
@@ -2214,6 +3087,10 @@ void FileBrowser::newFolder() {
 
 void FileBrowser::showEvent(QShowEvent *) {
   activeBrowsers.insert(this);
+
+  // Snapshot selection before the folder force-refresh.
+  storePersistedSelection();
+
   // refresh
   if (getFolder() != TFilePath())
     setFolder(getFolder(), false, true);
@@ -2221,15 +3098,31 @@ void FileBrowser::showEvent(QShowEvent *) {
     setHistoryDay(getDayDateString());
   m_folderTreeView->scrollTo(m_folderTreeView->currentIndex());
 
+  // Restore after folder refresh remaps indices.
+  QTimer::singleShot(0, this, [this]() { restorePersistedSelection(); });
+
   // Refresh SVN
   DvDirVersionControlNode *vcNode = dynamic_cast<DvDirVersionControlNode *>(
       m_folderTreeView->getCurrentNode());
   if (vcNode) m_folderTreeView->refreshVersionControl(vcNode);
+
+  if (m_buttonBar) m_buttonBar->refreshProjectFolderShortcuts();
+
+  if (m_infoPanelVisible)
+    QTimer::singleShot(0, this, [this]() { applyInfoPanelSize(); });
+}
+
+//-----------------------------------------------------------------------------
+
+void FileBrowser::resizeEvent(QResizeEvent *e) {
+  QFrame::resizeEvent(e);
+  if (m_infoPanelVisible) applyInfoPanelSize();
 }
 
 //-----------------------------------------------------------------------------
 
 void FileBrowser::hideEvent(QHideEvent *) {
+  storePersistedSelection();
   activeBrowsers.erase(this);
   m_itemViewer->getPanel()->getItemViewPlayDelegate()->resetPlayWidget();
 }

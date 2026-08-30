@@ -77,6 +77,8 @@ public:
     bool m_inkCheckEnabled;
     bool m_ink1CheckEnabled;
     bool m_paintCheckEnabled;
+    //! Clear vector/mesh icons to transparent instead of white/black.
+    bool m_transparentBg;
 
     Settings()
         : m_transparencyCheck(false)
@@ -86,7 +88,8 @@ public:
         , m_paintIndex(-1)
         , m_inkCheckEnabled(false)
         , m_ink1CheckEnabled(false)
-        , m_paintCheckEnabled(false) {}
+        , m_paintCheckEnabled(false)
+        , m_transparentBg(false) {}
   };
 
 public:
@@ -101,7 +104,8 @@ public:
 
   TDimension getIconSize() const;
 
-  TOfflineGL *getOfflineGLContext();
+  //! Per-thread OfflineGL buffer, grown to at least \p minSize when needed.
+  TOfflineGL *getOfflineGLContext(const TDimension &minSize = TDimension());
 
   // icons from splines
   QPixmap getIcon(TStageObjectSpline *spline);
@@ -120,6 +124,14 @@ public:
   // icons from files
   QPixmap getIcon(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
+  //! File/scene icon at \p dim. \p browserBgMode: ThumbnailBgMode (0 = auto).
+  QPixmap getSizedIcon(const TFilePath &path, const TDimension &dim,
+                       const TFrameId &fid = TFrameId::NO_FRAME,
+                       int browserBgMode   = 0);
+  //! Cache lookup only; does not queue a render.
+  QPixmap peekSizedIcon(const TFilePath &path, const TDimension &dim,
+                        const TFrameId &fid = TFrameId::NO_FRAME,
+                        int browserBgMode   = 0);
   void invalidate(const TFilePath &path,
                   const TFrameId &fid = TFrameId::NO_FRAME);
   void remove(const TFilePath &path, const TFrameId &fid = TFrameId::NO_FRAME);
@@ -131,20 +143,24 @@ public:
 
   void clearRequests();
   void clearSceneIcons();
+  //! Drop `_r_WxH` caches except the listed sizes (0 = keep none).
+  void purgeResponsiveFileIconsExcept(const TDimension &keepA,
+                                      const TDimension &keepB = TDimension());
 
-  static TRaster32P generateVectorFileIcon(const TFilePath &path,
-                                           const TDimension &iconSize,
-                                           const TFrameId &fid);
-  static TRaster32P generateRasterFileIcon(const TFilePath &path,
-                                           const TDimension &iconSize,
-                                           const TFrameId &fid);
+  static TRaster32P generateVectorFileIcon(
+      const TFilePath &path, const TDimension &iconSize, const TFrameId &fid,
+      const Settings &settings = Settings());
+  static TRaster32P generateRasterFileIcon(
+      const TFilePath &path, const TDimension &iconSize, const TFrameId &fid,
+      const Settings &settings = Settings());
   static TRaster32P generateSceneFileIcon(const TFilePath &path,
                                           const TDimension &iconSize, int row);
   static TRaster32P generateSplineFileIcon(const TFilePath &path,
                                            const TDimension &iconSize);
   static TRaster32P generateMeshFileIcon(const TFilePath &path,
                                          const TDimension &iconSize,
-                                         const TFrameId &fid);
+                                         const TFrameId &fid,
+                                         const Settings &settings = Settings());
 
   // This function is called when only colors of styles are changed in toonz
   // raster levels. In such case it doesn't need to re-compute icons but needs

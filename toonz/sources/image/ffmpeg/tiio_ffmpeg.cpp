@@ -601,7 +601,21 @@ void Ffmpeg::getFramesFromMovie(int frame) {
     preIFrameArgs << "-threads" << "auto" << "-i" << m_path.getQString();
 
     QStringList postIFrameArgs;
-    postIFrameArgs << "-y" << "-f" << "image2" << tempName;
+    if (frame == -1) {
+      // Extract every frame (legacy / bulk decode).
+      postIFrameArgs << "-y"
+                     << "-f"
+                     << "image2" << tempName;
+    } else {
+      // Single-frame extract: decoding the whole movie is too slow for
+      // browser / filmstrip thumbnails.
+      if (frame > 1) {
+        postIFrameArgs << "-vf" << QString("select=eq(n\\,%1)").arg(frame - 1);
+      }
+      postIFrameArgs << "-frames:v"
+                     << "1"
+                     << "-y" << tempStart;
+    }
 
     runFfmpeg(preIFrameArgs, postIFrameArgs, true, true, true, false);
 
@@ -612,14 +626,17 @@ void Ffmpeg::getFramesFromMovie(int frame) {
       return;
     }
 
-    // Add all extracted frames to cleanup list
-    for (int i = 1; i <= m_frameCount; i++) {
-      QString frameFile = ffmpegCachePath + QDir::separator() + m_tempBaseName +
-                          QString("_in%1.").arg(i, 6, 10, QChar('0')) +
-                          m_intermediateFormat;
-      if (!m_cleanUpList.contains(frameFile)) {
-        m_cleanUpList.push_back(frameFile);
+    if (frame == -1) {
+      for (int i = 1; i <= m_frameCount; i++) {
+        QString frameFile =
+            ffmpegCachePath + QDir::separator() + m_tempBaseName +
+            QString("_in%1.").arg(i, 6, 10, QChar('0')) + m_intermediateFormat;
+        if (!m_cleanUpList.contains(frameFile)) {
+          m_cleanUpList.push_back(frameFile);
+        }
       }
+    } else if (!m_cleanUpList.contains(tempStart)) {
+      m_cleanUpList.push_back(tempStart);
     }
   }
 }
@@ -755,7 +772,6 @@ TLevelReaderFFmpeg::TLevelReaderFFmpeg(const TFilePath &path)
     , m_frameCount(-1)
     , m_lx(0)
     , m_ly(0)
-    , m_framesExtracted(false)
     , m_imageInfo(nullptr) {
   m_ffmpegReader = new Ffmpeg();
   if (!m_ffmpegReader) {
@@ -822,20 +838,13 @@ TDimension TLevelReaderFFmpeg::getSize() { return m_size; }
 TImageP TLevelReaderFFmpeg::load(int frameIndex) {
   if (!m_ffmpegReader) return TImageP();
 
-  if (!m_framesExtracted) {
-    try {
-      m_ffmpegReader->getFramesFromMovie();
-      // Use checkFilesExist() instead of accessing private member
-      if (m_ffmpegReader->checkFilesExist()) {
-        m_framesExtracted = true;
-      } else {
-        throw TImageException(m_path, "Frame extraction produced no files.");
-      }
-    } catch (const TImageException &e) {
-      DVGui::warning(QObject::tr("Failed to extract frames from movie: %1")
-                         .arg(QString::fromStdWString(e.getMessage())));
-      return TImageP();
-    }
+  try {
+    // Decode only the requested frame.
+    m_ffmpegReader->getFramesFromMovie(frameIndex);
+  } catch (const TImageException &e) {
+    DVGui::warning(QObject::tr("Failed to extract frames from movie: %1")
+                       .arg(QString::fromStdWString(e.getMessage())));
+    return TImageP();
   }
 
   return m_ffmpegReader->getImage(frameIndex);

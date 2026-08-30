@@ -10,19 +10,66 @@
 #include <QCheckBox>
 #include <QList>
 #include <QModelIndex>
+#include <QSet>
+#include <QHash>
+#include <QString>
+#include <QStringList>
+#include <functional>
 
 #include "dvitemview.h"
 #include "tfilepath.h"
 #include "toonzqt/dvdialog.h"
+#include "saveloadqsettings.h"
 #include "versioncontrol.h"
 #include "tthread.h"
 
 class QLineEdit;
 class QTreeWidgetItem;
 class QSplitter;
+class QScrollArea;
 class DvDirModelNode;
 class DvDirTreeView;
 class QFileSystemWatcher;
+class InfoViewer;
+
+//-----------------------------------------------------------------------------
+
+//! Per-file File Browser settings (thumbnail background, favorites).
+class BrowserFileSettings final {
+public:
+  static BrowserFileSettings *instance();
+
+  //! Thumbnail background override; -1 uses the panel default.
+  int thumbnailBgOverride(const TFilePath &path) const;
+  void setThumbnailBgOverride(const TFilePath &path, int mode);
+  void clearThumbnailBgOverride(const TFilePath &path);
+
+  bool isFavorite(const TFilePath &path) const;
+  void setFavorite(const TFilePath &path, bool on);
+  void toggleFavorite(const TFilePath &path);
+
+  bool isPinnedFolder(const TFilePath &path) const;
+  void setPinnedFolder(const TFilePath &path, bool on);
+  QStringList pinnedFolders() const;
+
+private:
+  BrowserFileSettings();
+  void ensureLoaded();
+  void load();
+  void save() const;
+  static QString pathKey(const TFilePath &path);
+
+  QHash<QString, int> m_bgOverrides;
+  QSet<QString> m_favorites;
+  QStringList m_pinnedFolders;
+};
+
+class QMenu;
+
+bool supportsBrowserThumbnailCustomization(const TFilePath &path);
+bool supportsBrowserFavorites(const TFilePath &path);
+void appendThumbnailBackgroundMenu(
+    QMenu *parentMenu, const std::function<void(int)> &onModeSelected);
 
 //-----------------------------------------------------------------------------
 
@@ -55,7 +102,9 @@ private:
 
 //-----------------------------------------------------------------------------
 
-class FileBrowser final : public QFrame, public DvItemListModel {
+class FileBrowser final : public QFrame,
+                          public DvItemListModel,
+                          public SaveLoadQSettings {
   Q_OBJECT
 
 public:
@@ -125,6 +174,15 @@ types to be displayed in the file browser.
   // So it is disabled by default.
   void enableDoubleClickToOpenScenes();
 
+  void setInfoPanelVisible(bool visible);
+
+  void save(QSettings &settings) const override;
+  void load(QSettings &settings) override;
+
+public slots:
+  void onInfoPanelActionTriggered(bool on);
+  void onInfoPanelContextMenu(const QPoint &pos);
+
 protected:
   int findIndexWithPath(TFilePath path);
   void getExpandedFolders(DvDirModelNode *node,
@@ -137,6 +195,7 @@ protected:
   bool drop(const QMimeData *data) override;
   void showEvent(QShowEvent *) override;
   void hideEvent(QHideEvent *) override;
+  void resizeEvent(QResizeEvent *) override;
 
   // Fill the QStringList with files selected in the browser, auxiliary files
   // (palette for tlv, hooks, sceneIcons)
@@ -159,8 +218,16 @@ protected slots:
   void onClickedItem(int index);
   void onDoubleClickedItem(int index);
   void onSelectedItems(const std::set<int> &indexes);
+  void onItemsSplitterMoved(int pos, int index);
+  void refreshInfoPanelFromSelection();
+  void onIconGenerated();
   void folderUp();
   void newFolder();
+  void onSearchFilterChanged(const QString &text);
+  void onTypeFilterChanged(const QStringList &extensions);
+  void onFavoritesFilterChanged(bool on);
+  void setSelectedThumbnailBg(int mode);
+  void toggleSelectedFavorite();
 
   void onBackButtonPushed();
   void onFwdButtonPushed();
@@ -241,13 +308,32 @@ private:
 private:
   DvDirTreeView *m_folderTreeView;
   QSplitter *m_mainSplitter;
+  QSplitter *m_itemsSplitter      = nullptr;
+  QScrollArea *m_infoScrollArea   = nullptr;
+  QWidget *m_infoPanelHost        = nullptr;
+  InfoViewer *m_infoViewer        = nullptr;
+  QLabel *m_infoThumbnail         = nullptr;
+  QToolButton *m_thumbCollapseBtn = nullptr;
+  bool m_infoPanelVisible         = false;
+  bool m_infoThumbVisible         = true;
+  TFilePath m_infoCurrentPath;
+  //! Last info-panel thumbnail render size (IconGenerator cache key).
+  QSize m_infoThumbReqSize;
   QLineEdit *m_folderName;
   DvItemViewer *m_itemViewer;
+  DvItemViewerButtonBar *m_buttonBar = nullptr;
   FrameCountReader m_frameCountReader;
 
   // folder history
   QList<QModelIndex> m_indexHistoryList;
   int m_currentPosition = 0;
+
+  bool getInfoPanelFile(TFilePath &path) const;
+  void applyInfoPanelSize();
+  int infoThumbPanelWidth() const;
+  int infoThumbBgMode() const;
+  void updateInfoThumbnail(const TFilePath &fp);
+  void setInfoThumbnailPixmap(const QPixmap &px);
 
   std::vector<Item> m_items;
   TFilePath m_folder;
@@ -255,10 +341,20 @@ private:
   QStringList m_filter;
   std::map<TFilePath, Item> m_multiFileItemMap;
 
+  std::vector<TFilePath> m_persistedSelection;
+  std::vector<Item> m_folderItems;
+  QString m_nameFilter;
+  QSet<QString> m_typeFilter;
+  bool m_favoritesOnly = false;
+
 private:
   void readFrameCount(Item &item);
   void readInfo(Item &item);
   void refreshCurrentFolderItems();
+  void storePersistedSelection();
+  void restorePersistedSelection();
+  void applyNameFilter();
+  void pinFoldersFirst();
 
   DvItemListModel::Status getItemVersionControlStatus(const Item &item);
 
