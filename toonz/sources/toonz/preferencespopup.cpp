@@ -59,6 +59,7 @@
 #include <QListWidget>
 #include <QGroupBox>
 #include <QKeySequence>
+#include <QSignalBlocker>
 
 using namespace DVGui;
 
@@ -665,6 +666,8 @@ void PreferencesPopup::beforeRoomChoiceChanged() {
 //-----------------------------------------------------------------------------
 
 void PreferencesPopup::onColorCalibrationChanged() {
+  CommandManager::instance()->setChecked(MI_ToggleColorCalibration,
+                                         m_pref->isColorCalibrationEnabled());
   LutManager::instance()->update();
   TApp::instance()->getCurrentScene()->notifyPreferenceChanged(
       "ColorCalibration");
@@ -1106,12 +1109,13 @@ QWidget* PreferencesPopup::createUI(PreferencesItemId id,
   case QMetaType::QVariantMap:  // used in colorCalibrationLutPaths
   {
     DVGui::FileField* field = new DVGui::FileField(
-        this, QString("- Please specify 3DLUT file (.3dl) -"), false, true);
+        this, QString("- Please specify 3D LUT file (.3dl or .cube) -"), false,
+        true);
     QString lutPath = m_pref->getColorCalibrationLutPath(
         LutManager::instance()->getMonitorName());
     if (!lutPath.isEmpty()) field->setPath(lutPath);
     field->setFileMode(QFileDialog::ExistingFile);
-    QStringList lutFileTypes = {"3dl"};
+    QStringList lutFileTypes = {"3dl", "cube"};
     field->setFilters(lutFileTypes);
     connect(field, &FileField::pathChanged, this,
             &PreferencesPopup::onLutPathChanged);
@@ -1286,6 +1290,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       {showIconsInMenu, tr("Show Icons In Menu*")},
       {showRoomBindButtons, tr("Show Room Bind Buttons*")},
       {viewerIndicatorEnabled, tr("Show Viewer Indicators")},
+      {restoreViewerViewFromLastSession,
+       tr("Restore Viewer Zoom and Pan from Last Session")},
 
       // Visualization
       {show0ThickLines, tr("Show Lines with Thickness 0")},
@@ -1354,7 +1360,8 @@ QString PreferencesPopup::getUIString(PreferencesItemId id) {
       // Tools
       // {dropdownShortcutsCycleOptions, tr("Dropdown Shortcuts:")}, //
       // removed
-      {FillOnlysavebox, tr("Use the TLV Savebox to Limit Filling Operations")},
+      {FillOnlysavebox,
+       tr("Use the TLV Savebox to Limit Fill and Segment Eraser Operations")},
       {DefRegionWithPaint,
        tr("Define Filling Region Using both Lines and Areas")},
       {ReferFillPrevailing, tr("Paint Under Lines in Refer Fill")},
@@ -1677,12 +1684,16 @@ PreferencesPopup::PreferencesPopup()
   }
   setLayout(mainLayout);
 
-#ifdef MACOSX
-  setWindowFlags(Qt::Tool);
-#endif
 
   connect(categoryList, &QListWidget::currentRowChanged, stackedWidget,
           &QStackedWidget::setCurrentIndex);
+  connect(m_pref, &Preferences::fillOnlySaveboxChanged, this,
+          [this](bool enabled) {
+            CheckBox *saveboxCheck = getUI<CheckBox *>(FillOnlysavebox);
+            if (!saveboxCheck || saveboxCheck->isChecked() == enabled) return;
+            QSignalBlocker blocker(saveboxCheck);
+            saveboxCheck->setChecked(enabled);
+          });
 }
 
 //-----------------------------------------------------------------------------
@@ -1850,6 +1861,9 @@ QWidget* PreferencesPopup::createInterfacePage() {
 
   QGridLayout* colorCalibLay = insertGroupBoxUI(colorCalibrationEnabled, lay);
   { insertUI(colorCalibrationLutPaths, colorCalibLay); }
+  connect(CommandManager::instance()->getAction(MI_ToggleColorCalibration),
+          &QAction::triggered, getUI<QGroupBox*>(colorCalibrationEnabled),
+          &QGroupBox::setChecked);
   insertUI(displayIn30bit, lay);
   row = lay->rowCount();
   lay->addWidget(check30bitBtn, row - 1, 2, Qt::AlignRight);
@@ -2318,6 +2332,7 @@ QWidget* PreferencesPopup::createPreviewPage() {
     insertUI(actualPixelViewOnSceneEditingMode, viewerLay);
     insertUI(showRasterImagesDarkenBlendedInViewer, viewerLay);
     insertUI(viewerIndicatorEnabled, viewerLay);
+    insertUI(restoreViewerViewFromLastSession, viewerLay);
   }
   QGridLayout* palyControlLay = insertGroupBox(tr("Play Control"), lay);
   {
