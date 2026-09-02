@@ -213,6 +213,8 @@ elseif(BUILD_ENV_APPLE)
 
     add_definitions(
         -DMACOSX
+        # not an architecture flag: tmachine.h uses i386 to pick the little-endian
+        # channel order on macOS, which is also correct on arm64. Keep it.
         -Di386
         -D__MACOS__
       )
