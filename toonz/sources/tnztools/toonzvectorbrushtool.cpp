@@ -70,6 +70,7 @@ TEnv::IntVar V_BrushDrawOrder("InknpaintVectorDrawOrder", 2);
 TEnv::IntVar V_BrushBreakSharpAngles("InknpaintBrushBreakSharpAngles", 0);
 TEnv::IntVar V_BrushPressureSensitivity("InknpaintBrushPressureSensitivity", 1);
 TEnv::IntVar V_VectorBrushFrameRange("VectorBrushFrameRange", 0);
+TEnv::IntVar V_VectorBrushTrailCycle("VectorBrushTrailCycle", 0);
 TEnv::IntVar V_VectorBrushSnap("VectorBrushSnap", 0);
 TEnv::IntVar V_VectorBrushSnapSensitivity("VectorBrushSnapSensitivity", 0);
 TEnv::IntVar V_VectorBrushAssistants("VectorBrushAssistants", 1);
@@ -546,12 +547,19 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
     , m_pressure("Pressure", true)
     , m_snap("Snap", false)
     , m_frameRange("Range:")
+    , m_trailCycle("Trail Cycle:")
     , m_snapSensitivity("Sensitivity:")
     , m_capStyle("Cap")
     , m_joinStyle("Join")
     , m_miterJoinLimit("Miter:", 0, 100, 4)
     , m_assistants("Assistants", true)
     , m_styleId()
+    , m_trailFrameOffset()
+    , m_trailFrameCount()
+    , m_trailFrameStep(1)
+    , m_trailFrameLast()
+    , m_trailStyleId(-1)
+    , m_trailPalette()
     , m_minThick()
     , m_maxThick()
     , m_col()
@@ -568,8 +576,9 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
     , m_isPath()
     , m_presetsLoaded()
     , m_firstFrameRange(true)
-    , m_propertyUpdating()
-{
+    , m_trailCycleActive()
+    , m_trailHasStamped()
+    , m_propertyUpdating() {
   bind(targetType);
 
   m_thickness.setNonLinearSlider();
@@ -592,6 +601,15 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_frameRange.addValue(EASEIN_WSTR);
   m_frameRange.addValue(EASEOUT_WSTR);
   m_frameRange.addValue(EASEINOUT_WSTR);
+
+  m_prop[0].bind(m_trailCycle);
+  m_trailCycle.addValue(L"Off");
+  m_trailCycle.addValue(L"Forward");
+  m_trailCycle.addValue(L"Backward");
+  m_trailCycle.addValue(L"Repeat");
+  // A saved index from a build with more cycle modes must not throw here.
+  m_trailCycle.setIndex(std::min(std::max((int)V_VectorBrushTrailCycle, 0),
+                                 (int)m_trailCycle.getRange().size() - 1));
 
   m_prop[0].bind(m_snap);
 
@@ -621,6 +639,7 @@ ToonzVectorBrushTool::ToonzVectorBrushTool(std::string name, int targetType)
   m_drawOrder.setId("DrawOrder");
   m_breakAngles.setId("BreakSharpAngles");
   m_frameRange.setId("FrameRange");
+  m_trailCycle.setId("TrailCycle");
   m_snap.setId("Snap");
   m_snapSensitivity.setId("SnapSensitivity");
   m_preset.setId("BrushPreset");
@@ -686,6 +705,7 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_joinStyle.setQStringName(tr("Join"));
   m_miterJoinLimit.setQStringName(tr("Miter:"));
   m_frameRange.setQStringName(tr("Range:"));
+  m_trailCycle.setQStringName(tr("Trail Cycle:"));
   m_snap.setQStringName(tr("Snap"));
   m_snapSensitivity.setQStringName("");
   m_assistants.setQStringName(tr("Assistants"));
@@ -694,6 +714,10 @@ void ToonzVectorBrushTool::updateTranslation() {
   m_frameRange.setItemUIName(EASEIN_WSTR, tr("In"));
   m_frameRange.setItemUIName(EASEOUT_WSTR, tr("Out"));
   m_frameRange.setItemUIName(EASEINOUT_WSTR, tr("In&Out"));
+  m_trailCycle.setItemUIName(L"Off", tr("Off"));
+  m_trailCycle.setItemUIName(L"Forward", tr("Forward"));
+  m_trailCycle.setItemUIName(L"Backward", tr("Backward"));
+  m_trailCycle.setItemUIName(L"Repeat", tr("Repeat"));
   m_snapSensitivity.setItemUIName(LOW_WSTR, tr("Low"));
   m_snapSensitivity.setItemUIName(MEDIUM_WSTR, tr("Med"));
   m_snapSensitivity.setItemUIName(HIGH_WSTR, tr("High"));
@@ -832,7 +856,8 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     
     m_styleId = 0;
     m_tracks.clear();
-    
+    m_trailCycleActive = false;
+
     TTool::Application *app = TTool::getApplication();
     if (!app)
       return;
@@ -862,17 +887,58 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
       m_styleId = app->getCurrentLevelStyleIndex();
       m_currentColor = cs->getAverageColor();
       m_currentColor.m = 255;
+
+      m_trailCycleActive  = false;
+      int trailFrameCount = 0;
+      if (TVectorImagePatternStrokeStyle *trailStyle =
+              dynamic_cast<TVectorImagePatternStrokeStyle *>(cs))
+        trailFrameCount = trailStyle->getLevelFrameCount();
+      else if (TRasterImagePatternStrokeStyle *trailStyle =
+                   dynamic_cast<TRasterImagePatternStrokeStyle *>(cs))
+        trailFrameCount = trailStyle->getLevelFrameCount();
+      if (!m_frameRange.getIndex() && m_trailCycle.getIndex() != 0 &&
+          trailFrameCount > 1) {
+        // Forward advances the cycle, Backward backtracks it, Repeat holds
+        // it - and a Repeat stroke stores step 0, freezing its frame along
+        // the whole stroke.
+        const int cycleIndex = m_trailCycle.getIndex();
+        m_trailFrameStep     = cycleIndex == 2 ? -1 : cycleIndex == 3 ? 0 : 1;
+
+        // All cycle modes share one position in the source level, so cycling
+        // forward, backtracking and freezing act on the same cursor.  Only a
+        // different Trail style starts the cycle over; switching modes or
+        // drawing with other styles in between leaves the position alone.
+        const TPalette *palette = app->getCurrentPalette()
+                                      ? app->getCurrentPalette()->getPalette()
+                                      : nullptr;
+        if (m_trailStyleId != m_styleId || m_trailPalette != palette ||
+            m_trailFrameCount != trailFrameCount) {
+          m_trailStyleId    = m_styleId;
+          m_trailPalette    = palette;
+          m_trailFrameCount = trailFrameCount;
+          m_trailHasStamped = false;
+        }
+
+        if (m_trailHasStamped) {
+          m_trailFrameOffset =
+              (m_trailFrameLast + m_trailFrameStep) % trailFrameCount;
+          if (m_trailFrameOffset < 0) m_trailFrameOffset += trailFrameCount;
+        } else {
+          m_trailFrameOffset = m_trailFrameStep < 0 ? trailFrameCount - 1 : 0;
+        }
+        m_trailCycleActive = true;
+      }
     } else {
-      m_styleId = 1;
-      m_currentColor = TPixel32::Black;
+      m_styleId          = 1;
+      m_currentColor     = TPixel32::Black;
+      m_trailCycleActive = false;
     }
-    
+
     m_active = true;
-    
-    return; // painting has begun
+
+    return;  // painting has begun
   }
-  
-  
+
   // end painting //////////////////////////
   
   m_active = false;
@@ -947,6 +1013,10 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
     options.m_capStyle   = m_capStyle.getIndex();
     options.m_joinStyle  = m_joinStyle.getIndex();
     options.m_miterUpper = m_miterJoinLimit.getValue();
+    if (m_trailCycleActive) {
+      options.m_patternFrameOffset = m_trailFrameOffset;
+      options.m_patternFrameStep   = m_trailFrameStep;
+    }
 
     if ( stroke->getControlPointCount() == 3
       && stroke->getControlPoint(0) != stroke->getControlPoint(2) )
@@ -1055,6 +1125,11 @@ void ToonzVectorBrushTool::inputSetBusy(bool busy) {
       }
     }
     TUndoManager::manager()->endBlock();
+
+    if (m_trailCycleActive && !strokes.empty()) {
+      m_trailFrameLast  = m_trailFrameOffset;
+      m_trailHasStamped = true;
+    }
   }
   
   deleteStrokes(strokes);
@@ -1693,6 +1768,7 @@ bool ToonzVectorBrushTool::onPropertyChanged(std::string propertyName) {
   // Properties not tracked with preset
   int frameIndex               = m_frameRange.getIndex();
   V_VectorBrushFrameRange      = frameIndex;
+  V_VectorBrushTrailCycle      = m_trailCycle.getIndex();
   V_VectorBrushSnap            = m_snap.getValue();
   int snapSensitivityIndex     = m_snapSensitivity.getIndex();
   V_VectorBrushSnapSensitivity = snapSensitivityIndex;
@@ -2075,6 +2151,9 @@ void ToonzVectorBrushTool::loadLastBrush() {
 
   // Properties not tracked with preset
   m_frameRange.setIndex(V_VectorBrushFrameRange);
+  // A saved index from a build with more cycle modes must not throw here.
+  m_trailCycle.setIndex(std::min(std::max((int)V_VectorBrushTrailCycle, 0),
+                                 (int)m_trailCycle.getRange().size() - 1));
   m_snap.setValue(V_VectorBrushSnap ? 1 : 0);
   m_snapSensitivity.setIndex(V_VectorBrushSnapSensitivity);
   m_assistants.setValue(V_VectorBrushAssistants ? 1 : 0);

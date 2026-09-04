@@ -1,4 +1,5 @@
 
+#include <cmath>
 #include <cstring>
 
 // TnzCore includes
@@ -67,27 +68,278 @@ namespace {
 
 //-----------------------------------------------------------------------------
 
-// se ras ha le dimensioni giuste (potenze di due) ritorna ras. Altrimenti
-// crea il piu' piccolo raster con le dimensioni giuste che contenga ras e
-// copia il contenuto (scalandolo)
-// se il raster di partenza e' vuoto, non e' ras32 o e' piu' piccolo di 2x2
-// ritorna un raster vuoto
-TRaster32P makeTexture(const TRaster32P &ras) {
+// Keep raster pattern source images at a useful resolution.  Texture sizes do
+// not need to be powers of two on the OpenGL 2.1 renderers supported by
+// OpenToonz.  The cap keeps a malformed or accidentally huge source image from
+// consuming excessive memory while preserving its aspect ratio.
+constexpr int kMaxRasterPatternTextureSize = 2048;
+
+// Textures are built at this multiple of the size a stamp covers on the
+// target, so that a stamp keeps detail in reserve rather than turning soft at
+// the size it is usually drawn at.
+constexpr int kRasterPatternTextureDetail = 2;
+
+// Returns ras unchanged when it fits.  Otherwise, resamples it uniformly to
+// fit maxTextureSize.  A caller that has a current GL context can pass
+// GL_MAX_TEXTURE_SIZE to make the source safe for that hardware.
+TRaster32P fitTextureToSize(const TRaster32P &ras, int maxTextureSize) {
   if (!ras || ras->getLx() < 2 || ras->getLy() < 2) return TRaster32P();
-  TRaster32P ras32 = ras;
-  if (!ras32) return TRaster32P();
-  TDimension d(2, 2);
-  while (d.lx < 256 && d.lx * 2 <= ras32->getLx()) d.lx *= 2;
-  while (d.ly < 256 && d.ly * 2 <= ras32->getLy()) d.ly *= 2;
-  if (d == ras32->getSize())
-    return ras32;
-  else {
-    TRaster32P texture(d);
-    TScale sc((double)d.lx / ras32->getLx(), (double)d.ly / ras32->getLy());
-    TRop::resample(texture, ras32, sc);
-    return texture;
+
+  const TDimension sourceSize = ras->getSize();
+  if (sourceSize.lx <= maxTextureSize && sourceSize.ly <= maxTextureSize)
+    return ras;
+
+  const double scale = std::min(maxTextureSize / (double)sourceSize.lx,
+                                maxTextureSize / (double)sourceSize.ly);
+  const TDimension textureSize(std::max(2, (int)(sourceSize.lx * scale)),
+                               std::max(2, (int)(sourceSize.ly * scale)));
+  TRaster32P texture(textureSize);
+  TScale textureScale((double)textureSize.lx / sourceSize.lx,
+                      (double)textureSize.ly / sourceSize.ly);
+  TRop::resample(texture, ras, textureScale);
+  return texture;
+}
+
+// Stamp size and the distance between stamps are both measured from the source
+// image, so artwork sitting in a large transparent canvas is stamped small and
+// spaced out by its own padding.  The vector Trail style measures the artwork
+// itself - img->getBBox() - and has neither problem, so trim the canvas down to
+// what is actually drawn on it.
+//
+// The trim uses the whole level's content rather than each frame's, so frames
+// that grow, shrink or travel across the canvas keep doing so relative to one
+// another.  That movement is what a cycling Trail stamp is made of, and
+// measuring each frame on its own would flatten it.
+void trimPatternFramesToContent(const TLevelP &level) {
+  TRect content;
+  for (TLevel::Iterator it = level->begin(); it != level->end(); ++it) {
+    TRasterImageP ri = it->second;
+    if (!ri) continue;
+    TRaster32P ras = ri->getRaster();
+    if (!ras) continue;
+    TRect frameContent;
+    TRop::computeBBox(ras, frameContent);
+    content += frameContent;
+  }
+  if (content.isEmpty()) return;
+
+  // A level whose artwork already fills every frame is left exactly as it is,
+  // so a source with no margins keeps rendering as it always has.
+  bool isPadded = false;
+  for (TLevel::Iterator it = level->begin(); it != level->end() && !isPadded;
+       ++it) {
+    TRasterImageP ri = it->second;
+    if (!ri) continue;
+    TRaster32P ras = ri->getRaster();
+    if (ras && content != ras->getBounds()) isPadded = true;
+  }
+  if (!isPadded) return;
+
+  // Keep one transparent pixel around the artwork.  Stamps are drawn through a
+  // linear filter that samples half a texel past the edge of the texture, and
+  // the trimmed artwork would otherwise sit right on it.
+  const TRect trimRect = content.enlarge(1);
+
+  for (TLevel::Iterator it = level->begin(); it != level->end(); ++it) {
+    TRasterImageP ri = it->second;
+    if (!ri) continue;
+    TRaster32P ras = ri->getRaster();
+    if (!ras) continue;
+
+    TRaster32P trimmed(trimRect.getSize());
+    trimmed->clear();
+
+    TRect source = trimRect * ras->getBounds();
+    if (!source.isEmpty()) {
+      TRect destination = source - trimRect.getP00();
+      trimmed->extract(destination)->copy(ras->extract(source));
+    }
+    ri->setRaster(trimmed);
   }
 }
+
+//-----------------------------------------------------------------------------
+
+int previousPowerOfTwo(int value) {
+  int power = 1;
+  while (power * 2 <= value) power *= 2;
+  return power;
+}
+
+int nearestPowerOfTwo(int value) {
+  const int lower = previousPowerOfTwo(value);
+  const int upper = lower * 2;
+  return (value - lower <= upper - value) ? lower : upper;
+}
+
+// The offscreen contexts used for renders, previews and level icons can be
+// OpenGL 1.x, where a texture side that is not a power of two is rejected and
+// the stamp silently draws untextured.  Stamp geometry is taken from the
+// source image, not from the texture, so rounding the sides here changes how
+// finely a stamp is sampled and not how it is placed or how wide it is.
+//
+// stampHeight is how many pixels the stamp covers where it is being drawn.
+// Sampling a source down to it keeps the whole image in the result: point
+// sampling a full sized texture into the two or three pixels a stamp gets in
+// a level icon picks a couple of texels and drops everything else, which is
+// why a drawing made of stamps used to reach its column icon as a dot.
+TDimension getPatternTextureSize(const TDimension &sourceSize,
+                                 double stampHeight, int maxTextureSize) {
+  const int maxSide = std::max(2, previousPowerOfTwo(maxTextureSize));
+
+  double shrink = 1.0;
+  if (stampHeight > 0 && stampHeight < sourceSize.ly)
+    shrink = stampHeight / (double)sourceSize.ly;
+
+  return TDimension(
+      std::min(std::max(2, nearestPowerOfTwo((int)(sourceSize.lx * shrink))),
+               maxSide),
+      std::min(std::max(2, nearestPowerOfTwo((int)(sourceSize.ly * shrink))),
+               maxSide));
+}
+
+// Returns ras itself when it can already be uploaded as it is.
+TRaster32P makePatternTexture(const TRaster32P &ras,
+                              const TDimension &textureSize) {
+  if (!ras || ras->getLx() < 2 || ras->getLy() < 2) return TRaster32P();
+  if (textureSize == ras->getSize()) return ras;
+
+  TRaster32P texture(textureSize);
+  TScale textureScale((double)textureSize.lx / ras->getLx(),
+                      (double)textureSize.ly / ras->getLy());
+  TRop::resample(texture, ras, textureScale);
+  return texture;
+}
+
+// Texture modulation can only scale a texture, so a color function's additive
+// part - the onion skin tint - has to be applied to the pixels themselves.
+TRaster32P applyColorFunction(const TRaster32P &texture,
+                              const TColorFunction *cf) {
+  TRaster32P tinted(texture->getSize());
+  texture->lock();
+  tinted->lock();
+  for (int y = 0; y < texture->getLy(); ++y) {
+    const TPixel32 *src = texture->pixels(y);
+    TPixel32 *dst       = tinted->pixels(y);
+    for (int x = 0; x < texture->getLx(); ++x) dst[x] = (*cf)(src[x]);
+  }
+  tinted->unlock();
+  texture->unlock();
+  return tinted;
+}
+
+bool sameParameters(const TColorFunction::Parameters &a,
+                    const TColorFunction::Parameters &b) {
+  return a.m_mR == b.m_mR && a.m_mG == b.m_mG && a.m_mB == b.m_mB &&
+         a.m_mM == b.m_mM && a.m_cR == b.m_cR && a.m_cG == b.m_cG &&
+         a.m_cB == b.m_cB && a.m_cM == b.m_cM;
+}
+
+// Textures ready for glTexImage2D: sides rounded to powers of two, sampled
+// down to the size the stamp has where it is drawn, and carrying the render
+// color function.  Building one costs a resample and a pass over the image,
+// and the same few are asked for again on every repaint, so they are kept
+// until the pattern is loaded again.
+class PatternTextureCache  // singleton
+{
+public:
+  static PatternTextureCache *instance() {
+    static PatternTextureCache singleton;
+    return &singleton;
+  }
+
+  TRaster32P getTexture(const std::string &name, const TFrameId &fid,
+                        const TRaster32P &source, const TDimension &textureSize,
+                        const TColorFunction *cf) {
+    TColorFunction::Parameters parameters;
+    if (cf) cf->getParameters(parameters);
+
+    QMutexLocker sl(&m_mutex);
+
+    for (const Entry &entry : m_entries)
+      if (entry.m_name == name && entry.m_fid == fid &&
+          entry.m_textureSize == textureSize &&
+          entry.m_hasColorFunction == (cf != 0) &&
+          sameParameters(entry.m_parameters, parameters))
+        return entry.m_texture;
+
+    TRaster32P texture = makePatternTexture(source, textureSize);
+    if (!texture) return texture;
+    if (cf) texture = applyColorFunction(texture, cf);
+
+    // Onion skin asks for one variant per ghost, so the cache holds several
+    // entries per frame.  Dropping the oldest ones keeps a long session, and a
+    // pattern drawn from large sources, bounded.
+    const int textureByteCount = texture->getLx() * texture->getLy() * 4;
+    while (!m_entries.empty() &&
+           ((int)m_entries.size() >= c_maxEntryCount ||
+            m_byteCount + textureByteCount > c_maxByteCount))
+      removeEntry(0);
+
+    Entry entry;
+    entry.m_name             = name;
+    entry.m_fid              = fid;
+    entry.m_textureSize      = textureSize;
+    entry.m_hasColorFunction = (cf != 0);
+    entry.m_parameters       = parameters;
+    entry.m_texture          = texture;
+    m_entries.push_back(entry);
+    m_byteCount += textureByteCount;
+
+    return texture;
+  }
+
+  void clear(const std::string &name) {
+    QMutexLocker sl(&m_mutex);
+    for (int i = (int)m_entries.size() - 1; i >= 0; --i)
+      if (m_entries[i].m_name == name) removeEntry(i);
+  }
+
+private:
+  struct Entry {
+    std::string m_name;
+    TFrameId m_fid;
+    TDimension m_textureSize;
+    bool m_hasColorFunction;
+    TColorFunction::Parameters m_parameters;
+    TRaster32P m_texture;
+  };
+
+  static const int c_maxEntryCount = 32;
+  static const int c_maxByteCount  = 64 * 1024 * 1024;
+
+  TThread::Mutex m_mutex;
+  std::vector<Entry> m_entries;
+  int m_byteCount;
+
+  PatternTextureCache() : m_byteCount(0) {}
+
+  // the caller holds m_mutex
+  void removeEntry(int index) {
+    const TRaster32P &texture = m_entries[index].m_texture;
+    m_byteCount -= texture->getLx() * texture->getLy() * 4;
+    m_entries.erase(m_entries.begin() + index);
+  }
+};
+
+//-----------------------------------------------------------------------------
+
+// Every stamp is centered on a point of the centerline and reaches
+// thickness * (lx / ly, 1) from it before being rotated, so growing the
+// centerline box by that reach covers all of them.  Render tiles and level
+// icons are cut from the image bbox while the viewer draws without clipping to
+// it, so a bbox that ignores the stamps loses them everywhere except on
+// canvas, and one that overshoots shrinks the drawing inside its icon.
+TRectD getPatternStampBBox(const TStroke *stroke, double maxAspectRatio) {
+  const double reach = const_cast<TStroke *>(stroke)->getMaxThickness() *
+                       std::sqrt(maxAspectRatio * maxAspectRatio + 1.0);
+  return stroke->getCenterlineBBox().enlarge(reach);
+}
+
+TLevel::Iterator getPatternFrameIterator(const TLevelP &level,
+                                         const TStroke *stroke);
+void advancePatternFrameIterator(TLevel::Iterator &it, const TLevelP &level,
+                                 int step);
 
 //-----------------------------------------------------------------------------
 
@@ -1132,6 +1384,10 @@ void TRasterImagePatternStrokeStyle::loadLevel(const std::string &patternName) {
   // button l'eventuale livello
   m_level = TLevelP();
 
+  // the textures built for the previous content are no longer valid
+  PatternTextureCache::instance()->clear(m_name);
+  PatternTextureCache::instance()->clear(patternName);
+
   // aggiorno il nome
   m_name = patternName;
 
@@ -1169,8 +1425,9 @@ void TRasterImagePatternStrokeStyle::loadLevel(const std::string &patternName) {
       // se il frame e' raster...
       TRaster32P ras = ri->getRaster();
       if (!ras) continue;
-      // aggiusta le dimensioni
-      ras = makeTexture(ras);
+      // Keep the source detail for raster Trail styles.  The actual hardware
+      // texture limit is checked while drawing, when a GL context is current.
+      ras = fitTextureToSize(ras, kMaxRasterPatternTextureSize);
       if (!ras) continue;
       m_level->setFrame(frameIt->first, new TRasterImage(ras));
     } else if (TVectorImageP vi = img) {
@@ -1197,6 +1454,11 @@ void TRasterImagePatternStrokeStyle::loadLevel(const std::string &patternName) {
   }
   // cancello il contesto offline (se e' stato creato)
   delete glContext;
+
+  trimPatternFramesToContent(m_level);
+
+  // the stamp positions the props hold were computed for the previous content
+  updateVersionNumber();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1208,32 +1470,47 @@ void TRasterImagePatternStrokeStyle::computeTransformations(
   transformations.clear();
   const double length = stroke->getLength();
 
+  // Collect the source sizes in the order drawStroke walks them so that every
+  // stamp is scaled and spaced by the frame it draws, not by the first frame
+  // of the level.
   std::vector<TDimensionD> images;
-  assert(m_level->begin() != m_level->end());
-  TLevel::Iterator lit;
-  for (lit = m_level->begin(); lit != m_level->end(); ++lit) {
+  images.reserve(frameCount);
+  TDimensionD firstValidSize(0, 0);
+  TLevel::Iterator lit = getPatternFrameIterator(m_level, stroke);
+  const int frameStep  = stroke->outlineOptions().m_patternFrameStep;
+  for (int i = 0; i < frameCount; ++i) {
+    TDimensionD size(0, 0);
     TRasterImageP ri = lit->second;
-    if (!ri) continue;
-    TDimension d = ri->getRaster()->getSize();
-    images.push_back(TDimensionD(d.lx, d.ly));
+    if (ri && ri->getRaster()) {
+      TDimension d = ri->getRaster()->getSize();
+      size         = TDimensionD(d.lx, d.ly);
+      if (firstValidSize.ly < 1) firstValidSize = size;
+    }
+    images.push_back(size);
+    advancePatternFrameIterator(lit, m_level, frameStep);
   }
-  assert(!images.empty());
-  if (images.empty()) return;
+  if (firstValidSize.ly < 1) return;
+
+  // A frame with no raster is not drawn, but it still holds its place in the
+  // cycle, so give it a size that keeps the remaining stamps evenly spaced.
+  for (int i = 0; i < frameCount; ++i)
+    if (images[i].ly < 1) images[i] = firstValidSize;
 
   double s  = 0;
   int index = 0;
-  int m     = images.size();
   while (s < length) {
     double t      = stroke->getParameterAtLength(s);
     TThickPoint p = stroke->getThickPoint(t);
     TPointD v     = stroke->getSpeed(t);
     double ang    = rad2degree(atan(v)) + m_rotation;
 
-    int ly    = std::max(1.0, images[index].ly);
-    double sc = p.thick / ly;
+    const TDimensionD &image = images[index];
+    double ly                = std::max(1.0, image.ly);
+    double sc                = p.thick / ly;
     transformations.push_back(TTranslation(p) * TRotation(ang) * TScale(sc));
-    double ds = std::max(2.0, sc * images[index].lx * 2 + m_space);
+    double ds = std::max(2.0, sc * image.lx * 2 + m_space);
     s += ds;
+    index = (index + 1) % frameCount;
   }
 }
 
@@ -1252,19 +1529,42 @@ void TRasterImagePatternStrokeStyle::drawStroke(
   // lo stroke viene disegnato ripetendo size volte le frameCount immagini
   // contenute in level, posizionando ognuna secondo transformations[i]
   UINT size = transformations.size();
+  if (size == 0) return;
 
   glEnable(GL_TEXTURE_2D);
   glEnable(GL_BLEND);
 
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+  GLint maxTextureSize = 0;
+  glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+  if (maxTextureSize < 2) maxTextureSize = kMaxRasterPatternTextureSize;
+
+  // How tall a stamp is, in pixels, where it is being drawn: a stamp reaches
+  // its thickness above and below its point on the stroke.  A stamp shrunk
+  // into a level icon or a zoomed out view covers a couple of pixels, and a
+  // texture left at source size would be point sampled down to them.
+  glPushMatrix();
+  tglMultMatrix(rd.m_aff);
+  const double pixelSize2 = tglGetPixelSize2();
+  glPopMatrix();
+  const double stampHeight =
+      (pixelSize2 > 0)
+          ? 2.0 * const_cast<TStroke *>(stroke)->getMaxThickness() /
+                std::sqrt(pixelSize2)
+          : 0.0;
+
   GLuint texId;
   glGenTextures(1, &texId);
 
   glBindTexture(GL_TEXTURE_2D, texId);
 
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  // The texture covers the quad exactly once, so wrapping is only ever reached
+  // by the linear filter half a texel past the edge.  Trimmed artwork sits
+  // close to that edge, and repeating it there would bring in the opposite
+  // side; the trim leaves a transparent pixel for the clamp to sample.
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+  glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
@@ -1274,16 +1574,35 @@ void TRasterImagePatternStrokeStyle::drawStroke(
 
   glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
-  // visto che cambiare texture costa tempo il ciclo esterno e' sulle textures
-  // piuttosto che sulle trasformazioni
-  TLevel::Iterator frameIt = m_level->begin();
-  for (int i = 0; i < (int)size && frameIt != m_level->end(); ++i, ++frameIt) {
-    TRasterImageP ri = frameIt->second;
-    TRasterP ras;
+  // Since changing textures is expensive, keep the outer loop on source
+  // frames.  Starting from the stroke's saved offset and advancing by its
+  // saved step lets each stamp render the intended cycle frame.  A stroke
+  // whose step lands on the same frame every time - a frozen Repeat stroke -
+  // has one frame to upload, drawn at every stamp.
+  TLevel::Iterator frameIt     = getPatternFrameIterator(m_level, stroke);
+  const int frameStep          = stroke->outlineOptions().m_patternFrameStep;
+  const int distinctFrameCount = (frameStep % frameCount == 0) ? 1 : frameCount;
+  for (int i = 0; i < (int)size && i < distinctFrameCount; ++i) {
+    TLevel::Iterator currentFrameIt = frameIt;
+    advancePatternFrameIterator(frameIt, m_level, frameStep);
+
+    TRasterImageP ri = currentFrameIt->second;
+    TRaster32P ras;
     if (ri) ras = ri->getRaster();
     if (!ras) continue;
+
+    // The upload wants power of two sides, at most what this context allows,
+    // no more detail than the stamp can show, and the color function baked in.
+    // The stroke geometry below keeps using the source image, so the stamp is
+    // placed and sized as it was drawn.
+    const TDimension textureSize = getPatternTextureSize(
+        ras->getSize(), kRasterPatternTextureDetail * stampHeight,
+        maxTextureSize);
+    TRaster32P texture = PatternTextureCache::instance()->getTexture(
+        m_name, currentFrameIt->first, ras, textureSize, rd.m_cf);
+    if (!texture) continue;
     TextureInfoForGL texInfo;
-    TRasterP texImage = prepareTexture(ras, texInfo);
+    TRasterP texImage = prepareTexture(texture, texInfo);
 
     glTexImage2D(GL_TEXTURE_2D,
                  0,                       // one level only
@@ -1294,8 +1613,9 @@ void TRasterImagePatternStrokeStyle::drawStroke(
                  texInfo.type,    // pixel format           // crappy names
                  texInfo.format,  // pixel data type        // oh, SO much
                  texImage->getRawData());
+    CHECK_GL_ERROR
 
-    for (int j = i; j < (int)size; j += frameCount) {
+    for (int j = i; j < (int)size; j += distinctFrameCount) {
       TAffine aff = rd.m_aff * transformations[j];
       glPushMatrix();
       tglMultMatrix(aff);
@@ -1390,7 +1710,21 @@ void TRasterImagePatternStrokeStyle::getObsoleteTagIds(
 TRectD TRasterImagePatternStrokeStyle::getStrokeBBox(
     const TStroke *stroke) const {
   TRectD rect = TColorStyle::getStrokeBBox(stroke);
-  return rect.enlarge(std::max(rect.getLx() * 0.25, rect.getLy() * 0.25));
+
+  double maxAspectRatio = 1.0;
+  for (TLevel::Iterator it = m_level->begin(); it != m_level->end(); ++it) {
+    TRasterImageP ri = it->second;
+    if (!ri) continue;
+    TRasterP ras = ri->getRaster();
+    if (!ras || ras->getLy() < 1) continue;
+    maxAspectRatio =
+        std::max(maxAspectRatio, ras->getLx() / (double)ras->getLy());
+  }
+
+  // The historical box stays in the union, so a stroke whose stamps already
+  // fit keeps the bounding box it has always had.
+  TRectD rect2 = rect.enlarge(std::max(rect.getLx(), rect.getLy()) * 0.25);
+  return rect2 + getPatternStampBBox(stroke, maxAspectRatio);
 }
 
 //*************************************************************************************
@@ -1571,6 +1905,43 @@ void TVectorImagePatternStrokeStyle::loadLevel(const std::string &patternName) {
 
 //--------------------------------------------------------------------------------------------------
 
+namespace {
+
+TLevel::Iterator getPatternFrameIterator(const TLevelP &level,
+                                         const TStroke *stroke) {
+  const int frameCount = level->getFrameCount();
+  assert(frameCount > 0);
+
+  int offset = stroke->outlineOptions().m_patternFrameOffset % frameCount;
+  if (offset < 0) offset += frameCount;
+
+  TLevel::Iterator it = level->begin();
+  while (offset-- > 0) {
+    if (++it == level->end()) it = level->begin();
+  }
+  return it;
+}
+
+// A step of zero holds the iterator still: the stroke shows one frame along
+// its whole length, which is how the brush's Repeat cycle mode freezes a
+// stamp.
+void advancePatternFrameIterator(TLevel::Iterator &it, const TLevelP &level,
+                                 int step) {
+  const int frameCount = level->getFrameCount();
+  assert(frameCount > 0);
+
+  step %= frameCount;
+  if (step < 0) step += frameCount;
+
+  while (step-- > 0) {
+    if (++it == level->end()) it = level->begin();
+  }
+}
+
+}  // namespace
+
+//--------------------------------------------------------------------------------------------------
+
 void TVectorImagePatternStrokeStyle::computeTransformations(
     std::vector<TAffine> &transformations, const TStroke *stroke) const {
   const int frameCount = m_level->getFrameCount();
@@ -1578,13 +1949,14 @@ void TVectorImagePatternStrokeStyle::computeTransformations(
   transformations.clear();
   const double length = stroke->getLength();
   assert(m_level->begin() != m_level->end());
-  TLevel::Iterator lit = m_level->begin();
+  TLevel::Iterator lit = getPatternFrameIterator(m_level, stroke);
+  const int frameStep  = stroke->outlineOptions().m_patternFrameStep;
   double s             = 0;
 
   while (s < length) {
     TFrameId fid      = lit->first;
     TVectorImageP img = m_level->frame(fid);
-    if (++lit == m_level->end()) lit = m_level->begin();
+    advancePatternFrameIterator(lit, m_level, frameStep);
     assert(img);
     if (img->getType() != TImage::VECTOR) return;
     double t       = stroke->getParameterAtLength(s);
@@ -1647,7 +2019,7 @@ void TVectorImagePatternStrokeStyle::drawStroke(
 
     tglMultMatrix(rd.m_aff);
 
-    TLevel::Iterator lit = m_level->begin();
+    TLevel::Iterator lit = getPatternFrameIterator(m_level, stroke);
 
     TFrameId fid      = lit->first;
     TVectorImageP img = m_level->frame(fid);
@@ -1711,13 +2083,14 @@ void TVectorImagePatternStrokeStyle::drawStroke(
   } else {
     //--------------------------------------------
     assert(m_level->begin() != m_level->end());
-    TLevel::Iterator lit = m_level->begin();
+    TLevel::Iterator lit = getPatternFrameIterator(m_level, stroke);
+    const int frameStep  = stroke->outlineOptions().m_patternFrameStep;
     UINT i, size = transformations.size();
 
     for (i = 0; i < size; i++) {
       TFrameId fid      = lit->first;
       TVectorImageP img = m_level->frame(fid);
-      if (++lit == m_level->end()) lit = m_level->begin();
+      advancePatternFrameIterator(lit, m_level, frameStep);
       assert(img);
       if (!img) continue;
       if (img->getType() != TImage::VECTOR) return;
