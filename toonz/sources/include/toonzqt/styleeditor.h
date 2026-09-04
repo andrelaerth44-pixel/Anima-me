@@ -31,11 +31,16 @@
 #include <QTabBar>
 #include <QSlider>
 #include <QToolButton>
+#include <QAction>
 #include <QScrollArea>
 #include <QMouseEvent>
 #include <QPointF>
+#include <QRectF>
 #include <QSettings>
 #include <QSplitter>
+#include <QStackedWidget>
+#include <QRadioButton>
+#include <QButtonGroup>
 
 #undef DVAPI
 #undef DVVAR
@@ -135,6 +140,10 @@ public:
 
 enum CurrentWheel { none, leftWheel, rightTriangle };
 
+enum class ColorPageMode { Classic = 0, Advanced = 1 };
+enum class AdvancedSvShape { Square = 0, Triangle = 1 };
+enum class AdvancedPickerKind { Wheel = 0, Rectangle = 1 };
+
 class DVAPI HexagonalColorWheel final : public GLWidgetForHighDpi {
   Q_OBJECT
 
@@ -147,7 +156,15 @@ class DVAPI HexagonalColorWheel final : public GLWidgetForHighDpi {
   float m_triEdgeLen;
   float m_triHeight;
   QPointF m_wp[7], m_leftp[3];
+  QPointF m_circleCenter;
+  float m_hexEdgeLen;
+  float m_hexTriHeight;
+  float m_outerRadius;
+  float m_innerRadius;
+  QRectF m_svSquare;
 
+  ColorPageMode m_pageMode  = ColorPageMode::Classic;
+  AdvancedSvShape m_svShape = AdvancedSvShape::Square;
   CurrentWheel m_currentWheel;
 
   // used for color calibration with 3DLUT
@@ -158,9 +175,41 @@ class DVAPI HexagonalColorWheel final : public GLWidgetForHighDpi {
   bool m_cuedCalibrationUpdate = false;
 
 private:
+  void computeHexVertices();
+  void computeClassicLayout(int w, int h);
+  void computeAdvancedLayout(int w, int h);
+  void updateLayout(int w, int h);
+  void drawClassicHexWheel(float v);
+  void drawHueRing();
+  void drawSatValueTriangle();
   void drawCurrentColorMark();
+  void drawHarmonyMarks();
+  void drawHueRingBaton(int hue, float innerDist, float outerDist,
+                        const QPointF &center);
+  void computeAdvancedSVTriangle();
+  void computeAdvancedSvSquare();
+  void drawSatValueSquare();
+  void drawColorCursor(float x, float y);
+  QPointF svTriangleMarkerPos(float s, float v) const;
+  QPointF svSquareMarkerPos(float s, float v) const;
+  void svFromSquarePoint(const QPointF &localPos, int &s, int &v) const;
+  bool isInSvSquare(const QPoint &pos) const;
+  bool isInSvField(const QPoint &pos) const;
+  void clickSvField(const QPoint &pos);
+  static bool svTriangleBarycentric(const QPointF &p, const QPointF &hueV,
+                                    const QPointF &blackV,
+                                    const QPointF &whiteV, float &wHue,
+                                    float &wBlack, float &wWhite);
+  void svFromTrianglePoint(const QPointF &localPos, int &s, int &v) const;
   void clickLeftWheel(const QPoint &pos);
+  void clickHueRing(const QPoint &pos);
   void clickRightTriangle(const QPoint &pos);
+  bool isInHueRing(const QPoint &pos) const;
+  bool isInCircularHueRing(const QPoint &pos) const;
+  bool isInClassicWheel(const QPoint &pos) const;
+  bool isInTriangle(const QPoint &pos) const;
+  static void hexCornerColor(int cornerIndex, float v, float &r, float &g,
+                             float &b);
 
 public:
   HexagonalColorWheel(QWidget *parent);
@@ -170,6 +219,12 @@ public:
 
   void setBGColor(const QColor &color) { m_bgColor = color; }
   QColor getBGColor() const { return m_bgColor; }
+
+  void setPageMode(ColorPageMode mode);
+  ColorPageMode pageMode() const { return m_pageMode; }
+  void setSvShape(AdvancedSvShape shape);
+  AdvancedSvShape svShape() const { return m_svShape; }
+  void refreshLayout();
 
   void updateColorCalibration();
   void cueCalibrationUpdate() { m_cuedCalibrationUpdate = true; }
@@ -382,6 +437,8 @@ protected:
 */
 class DVAPI ColorChannelControl final : public QWidget {
   Q_OBJECT
+  QRadioButton *m_modeRadio;
+  QWidget *m_radioSlot;
   QLabel *m_label;
   ChannelLineEdit *m_field;
   ColorSlider *m_slider;
@@ -395,6 +452,8 @@ class DVAPI ColorChannelControl final : public QWidget {
 public:
   ColorChannelControl(ColorChannel channel, QWidget *parent = 0);
   void setColor(const ColorModel &color);
+  QRadioButton *modeRadio() const { return m_modeRadio; }
+  void setModeRadioVisible(bool on);
 
 protected slots:
   void onFieldChanged();
@@ -450,31 +509,51 @@ protected:
 };
 
 //=============================================================================
-/*! \brief The PlainColorPage is used to control the color parameter.
-
-                Inherits \b StyleEditorPage.
-
-                The PlainColorPage is made of a \b SquaredColorWheel and a \b
-   ColorSlider,
-                a collection of \b ColorChannelControl, and a number of radio
-   button (to control
-                the ColorWheel behaviour).
-*/
+/*! \brief Color picker and HSV/RGB/Alpha sliders for the current style. */
 class PlainColorPage final : public StyleEditorPage {
   Q_OBJECT
 
-  // ColorSliderBar *m_verticalSlider;
-  // QRadioButton *m_modeButtons[7];
   ColorChannelControl *m_channelControls[7];
-  // SquaredColorWheel *m_squaredColorWheel; //iwsw not used
 
   HexagonalColorWheel *m_hexagonalColorWheel;
+  SquaredColorWheel *m_squaredColorWheel;
+  ColorSliderBar *m_verticalSlider;
+  QWidget *m_rectPicker;
+  QButtonGroup *m_channelButtonGroup;
+  QWidget *m_pickerChrome;
+  QWidget *m_sectionBar;
+  QToolButton *m_svShapeBtn;
+  QWidget *m_colorFeaturesBar = nullptr;
+  QStackedWidget *m_featureStack = nullptr;
+  QToolButton *m_collectorBtn  = nullptr;
+  QWidget *m_collectorGrid     = nullptr;
+  QToolButton *m_historyBtn    = nullptr;
+  QWidget *m_historyGrid       = nullptr;
+  QToolButton *m_harmonyBtn    = nullptr;
+  QWidget *m_harmonyPane       = nullptr;
+  QToolButton *m_shadesBtn     = nullptr;
+  QWidget *m_shadesPane        = nullptr;
+  QToolButton *m_neighborsBtn  = nullptr;
+  QWidget *m_neighborsPane     = nullptr;
+  QToolButton *m_blendBtn      = nullptr;
+  QWidget *m_blendPane         = nullptr;
+  QToolButton *m_mixerBtn      = nullptr;
+  QWidget *m_mixerPane         = nullptr;
+  QToolButton *m_wheelKindBtn;
+  QToolButton *m_rectKindBtn;
+  QToolButton *m_advancedModeBtn;
+  QToolButton *m_varBtn = nullptr;
 
   ColorModel m_color;
   bool m_signalEnabled;
   bool m_isVertical = true;
+  AdvancedPickerKind m_pickerKind = AdvancedPickerKind::Wheel;
+  bool m_pickerVisible            = true;
+  QAction *m_pickerSectionAction  = nullptr;
+  QWidget *m_variationStrip       = nullptr;
   int m_visibleParts;
   void updateControls();
+  void syncFeaturePage();
 
   // QGridLayout *m_mainLayout;
   QFrame *m_slidersContainer;
@@ -484,7 +563,8 @@ public:
   PlainColorPage(QWidget *parent = 0);
   ~PlainColorPage() {}
 
-  QFrame *m_wheelFrame;
+  QFrame *m_pickerFrame;
+  QFrame *m_swatchFrame;
   QFrame *m_hsvFrame;
   QFrame *m_alphaFrame;
   QFrame *m_rgbFrame;
@@ -496,22 +576,47 @@ public:
   void setSplitterState(QByteArray state);
 
   void updateColorCalibration();
+  void setColorPageMode(ColorPageMode mode);
+  ColorPageMode colorPageMode() const;
+  void setAdvancedSvShape(AdvancedSvShape shape);
+  AdvancedSvShape advancedSvShape() const;
+  void setPickerKind(AdvancedPickerKind kind);
+  AdvancedPickerKind pickerKind() const { return m_pickerKind; }
+  void setPickerVisible(bool on);
+  bool pickerVisible() const { return m_pickerVisible; }
+  void bindSectionActions(QAction *picker, QAction *alpha, QAction *hsv,
+                          QAction *rgb, QAction *hex, QAction *swatch);
+  bool connectPickerContextMenu(const QObject *receiver, const char *member);
 
 protected:
   void resizeEvent(QResizeEvent *) override;
+  void showEvent(QShowEvent *) override;
+  void contextMenuEvent(QContextMenuEvent *) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
+  void placeSvShapeButton();
 
 signals:
   void colorChanged(const ColorModel &, bool isDragging);
+  void colorPageModeClicked();
+  void svShapeClicked();
+  void pickerKindClicked(int kind);
+  void pickerContextMenuRequested(const QPoint &globalPos);
+  void addPaletteStyleRequested(const ColorModel &);
 
 protected slots:
   void onWheelChanged(const ColorModel &color, bool isDragging);
-  // void onWheelSliderChanged(int value);
-  // void onWheelSliderReleased();
+  void onWheelSliderChanged(int value);
+  void onWheelSliderReleased();
+  void onRectPickerContextMenu(const QPoint &pos);
+  void onPickerKindButtonClicked();
+  void onPageContextMenu(const QPoint &pos);
 
 public slots:
-  // void setWheelChannel(int channel);
+  void setWheelChannel(int channel);
   void onControlChanged(const ColorModel &color, bool isDragging);
   void toggleOrientation();
+  void updatePickerChrome();
+  void refreshPickerLayout();
 };
 
 //=============================================================================
@@ -902,11 +1007,12 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
   QScrollArea *m_textureArea;
   QScrollArea *m_vectorsArea;
   QScrollArea *m_mypaintArea;
-  QAction *m_wheelAction;
+  QAction *m_pickerAction;
   QAction *m_hsvAction;
   QAction *m_alphaAction;
   QAction *m_rgbAction;
   QAction *m_hexAction;
+  QAction *m_swatchAction;
   QAction *m_searchAction;
   QActionGroup *m_sliderAppearanceAG;
   QAction *m_hexEditorAction;
@@ -1012,6 +1118,7 @@ protected slots:
 
   // chiamato quando viene modificato uno slider o la color wheel
   void onColorChanged(const ColorModel &, bool isDragging);
+  void onAddPaletteStyleRequested(const ColorModel &);
 
   void selectStyle(const TColorStyle &style);
 
@@ -1034,6 +1141,10 @@ protected slots:
   void onVectorBrushButtonToggled(bool on);
 
   void onSliderAppearanceSelected(QAction *);
+  void onAdvancedModeButtonClicked();
+  void onSvShapeButtonClicked();
+  void onPickerKindClicked(int kind);
+  void onPickerContextMenu(const QPoint &globalPos);
   void onPopupMenuAboutToShow();
 
   void onTextureSearch(const QString &);
@@ -1051,6 +1162,8 @@ private:
   QFrame *createVectorPage();
   QFrame *createMyPaintPage();
   void updateTabBar();
+  void applyColorPickerPrefs();
+  void fillPickerContextMenu(QMenu *menu);
 
   void copyEditedStyleToPalette(bool isDragging);
 };
