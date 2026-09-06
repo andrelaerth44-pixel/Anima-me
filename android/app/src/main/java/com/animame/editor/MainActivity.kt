@@ -6,14 +6,15 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.view.MotionEvent
 import android.widget.EditText
 import android.widget.LinearLayout
 
 class MainActivity : Activity() {
     private lateinit var editor: AnimationEditorViewV4
-    private var pendingImages = false
+    private lateinit var home: ProjectHomeView
+    private var inEditor = false
     private var menuOpen = false
-    private var menuAction = 0
 
     companion object {
         const val PICK_VIDEO = 4101
@@ -31,40 +32,51 @@ class MainActivity : Activity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         ProjectStore.initialize(applicationContext)
         editor = AnimationEditorViewV4(this)
-        setContentView(editor)
+        home = ProjectHomeView(this) { document, project -> openEditor(document, project) }
+        showHome()
     }
 
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP) {
+    private fun showHome() {
+        inEditor = false
+        menuOpen = false
+        setContentView(home)
+        home.invalidate()
+    }
+
+    private fun openEditor(document: AnimationDocument, project: AnimationProject) {
+        inEditor = true
+        menuOpen = false
+        editor.openDocument(document)
+        ProjectStore.touch(project)
+        setContentView(editor)
+        editor.invalidate()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (inEditor && ev.actionMasked == MotionEvent.ACTION_UP) {
             val x = ev.x
             val y = ev.y
             if (!menuOpen && x < 60f && y < 60f) {
                 menuOpen = true
-            } else if (menuOpen && x < 290f) {
-                menuAction = when (y) {
-                    in 185f..250f -> 2
-                    in 250f..315f -> 3
-                    in 315f..380f -> 4
-                    in 380f..445f -> 5
-                    in 445f..510f -> 6
-                    in 510f..575f -> 7
-                    else -> 0
-                }
-                when (menuAction) {
-                    2 -> { pickAudio(); menuOpen = false }
-                    3 -> { pickImages(); menuOpen = false }
-                    4 -> { pickVideo(); menuOpen = false }
-                    5 -> { pickProject(); menuOpen = false }
-                    6 -> { changeFramerate(); menuOpen = false }
-                    7 -> { resizeCanvas(); menuOpen = false }
-                    else -> if (x > 275f) menuOpen = false
+            } else if (menuOpen && x < 300f) {
+                // Exact vertical bands from the supplied reference menu.
+                when (y) {
+                    in 78f..146f -> { editor.dismissMenu(); showHome(); return true } // Close project
+                    in 147f..214f -> { editor.dismissMenu(); createExport(AnimationExportEngine.Format.MP4); menuOpen=false; return true }
+                    in 215f..280f -> { editor.dismissMenu(); pickAudio(); menuOpen=false; return true }
+                    in 281f..346f -> { editor.dismissMenu(); pickImages(); menuOpen=false; return true }
+                    in 347f..412f -> { editor.dismissMenu(); pickVideo(); menuOpen=false; return true }
+                    in 413f..488f -> { editor.dismissMenu(); pickProject(); menuOpen=false; return true }
+                    in 489f..553f -> { editor.dismissMenu(); changeFramerate(); menuOpen=false; return true }
+                    in 554f..630f -> { editor.dismissMenu(); resizeCanvas(); menuOpen=false; return true }
+                    else -> { editor.dismissMenu(); menuOpen=false; return true }
                 }
             }
         }
         return super.dispatchTouchEvent(ev)
     }
 
-    fun pickVideo() {
+    private fun pickVideo() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "video/*"
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -72,8 +84,7 @@ class MainActivity : Activity() {
         }, PICK_VIDEO)
     }
 
-    fun pickImages() {
-        pendingImages = true
+    private fun pickImages() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "image/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
@@ -82,7 +93,7 @@ class MainActivity : Activity() {
         }, PICK_IMAGES)
     }
 
-    fun pickAudio() {
+    private fun pickAudio() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "audio/*"
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -90,7 +101,7 @@ class MainActivity : Activity() {
         }, PICK_AUDIO)
     }
 
-    fun pickProject() {
+    private fun pickProject() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "application/zip"
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -98,7 +109,7 @@ class MainActivity : Activity() {
         }, PICK_PROJECT)
     }
 
-    fun createExport(format: AnimationExportEngine.Format) {
+    private fun createExport(format: AnimationExportEngine.Format) {
         val mime = when (format) {
             AnimationExportEngine.Format.MP4 -> "video/mp4"
             AnimationExportEngine.Format.GIF -> "image/gif"
@@ -130,93 +141,65 @@ class MainActivity : Activity() {
     }
 
     private fun changeFramerate() {
-        val input = EditText(this).apply {
-            hint = "FPS"
-            setText(editor.currentFps().toString())
-            inputType = 2
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Change framerate")
-            .setView(input)
+        val input = EditText(this).apply { hint = "FPS"; setText(editor.currentFps().toString()); inputType = 2 }
+        AlertDialog.Builder(this).setTitle("Change framerate").setView(input)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Apply") { _, _ ->
-                input.text.toString().toIntOrNull()?.let { editor.setDocumentFps(it) }
-            }.show()
+            .setPositiveButton("Apply") { _, _ -> input.text.toString().toIntOrNull()?.let { editor.setDocumentFps(it) } }
+            .show()
     }
 
     private fun resizeCanvas() {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 0, 40, 0)
-        }
-        val w = EditText(this).apply { hint = "Width"; setText(editor.currentWidth().toString()); inputType = 2 }
-        val h = EditText(this).apply { hint = "Height"; setText(editor.currentHeight().toString()); inputType = 2 }
-        box.addView(w)
-        box.addView(h)
-        AlertDialog.Builder(this)
-            .setTitle("Resize canvas")
-            .setView(box)
+        val box = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(40,0,40,0) }
+        val w = EditText(this).apply { hint="Width"; setText(editor.currentWidth().toString()); inputType=2 }
+        val h = EditText(this).apply { hint="Height"; setText(editor.currentHeight().toString()); inputType=2 }
+        box.addView(w); box.addView(h)
+        AlertDialog.Builder(this).setTitle("Resize or crop/expand").setView(box)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Apply") { _, _ ->
-                val nw = w.text.toString().toIntOrNull()
-                val nh = h.text.toString().toIntOrNull()
-                if (nw != null && nh != null) editor.resizeDocument(nw, nh)
+                val nw=w.text.toString().toIntOrNull(); val nh=h.text.toString().toIntOrNull()
+                if(nw!=null && nh!=null) editor.resizeDocument(nw,nh)
             }.show()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK) return
-        when (requestCode) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(resultCode != RESULT_OK) return
+        when(requestCode) {
             PICK_VIDEO -> data?.data?.let { editor.importVideo(it) }
-            CREATE_MP4 -> data?.data?.let { editor.exportVideo(it, AnimationExportEngine.Format.MP4) }
-            CREATE_GIF -> data?.data?.let { editor.exportVideo(it, AnimationExportEngine.Format.GIF) }
-            CREATE_SEQUENCE -> data?.data?.let { editor.exportVideo(it, AnimationExportEngine.Format.PNG_SEQUENCE) }
+            CREATE_MP4 -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.MP4) }
+            CREATE_GIF -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.GIF) }
+            CREATE_SEQUENCE -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.PNG_SEQUENCE) }
             PICK_IMAGES -> {
-                val uris = ArrayList<Uri>()
-                data?.clipData?.let { c -> for (i in 0 until c.itemCount) uris += c.getItemAt(i).uri }
-                data?.data?.let { if (uris.isEmpty()) uris += it }
-                if (uris.isNotEmpty()) createImageProject(uris)
-                pendingImages = false
+                val uris=ArrayList<Uri>()
+                data?.clipData?.let { c -> for(i in 0 until c.itemCount) uris += c.getItemAt(i).uri }
+                data?.data?.let { if(uris.isEmpty()) uris += it }
+                if(uris.isNotEmpty()) createImageProject(uris)
             }
-            PICK_AUDIO -> data?.data?.let {
-                val path = ProjectPackage.copyAudio(this, it)
-                if (path != null) editor.attachAudio(path)
-            }
-            PICK_PROJECT -> data?.data?.let { importProject(it) }
+            PICK_AUDIO -> data?.data?.let { ProjectPackage.copyAudio(this,it)?.let(editor::attachAudio) }
+            PICK_PROJECT -> data?.data?.let { ProjectPackage.importPackage(this,it)?.let { d ->
+                val p=ProjectStore.create(d.name,d.fps,d.width,d.height)
+                ProjectDocumentStore.save(this,p.id,d)
+                openEditor(d,p)
+            } }
             CREATE_PROJECT -> data?.data?.let { output ->
-                val current = ProjectStore.projects.firstOrNull()
-                if (current != null) {
-                    val document = ProjectDocumentStore.load(this, current.id)
-                    if (document != null) ProjectPackage.export(this, output, document)
-                }
+                val d=editor.documentForExport()
+                ProjectPackage.export(this,output,d)
             }
         }
     }
 
     private fun createImageProject(uris: List<Uri>) {
-        val paths = ProjectPackage.importImageSequence(this, uris)
-        if (paths.isEmpty()) return
-        val first = android.graphics.BitmapFactory.decodeFile(paths.first())
-        val w = first?.width ?: 1280
-        val h = first?.height ?: 720
-        first?.recycle()
-        val p = ProjectStore.create("Image sequence", 24, w, h)
-        val d = AnimationDocument(p.name, w, h, 24, paths.size)
-        val layer = d.activeLayer.apply { name = "Image sequence" }
-        paths.forEachIndexed { i, path -> layer.frames[i] = DrawingFrame(rasterPath = path) }
-        d.normalize()
-        ProjectDocumentStore.save(this, p.id, d)
-        ProjectStore.touch(p)
-        editor.openDocument(d)
-    }
-
-    private fun importProject(uri: Uri) {
-        val d = ProjectPackage.importPackage(this, uri) ?: return
-        editor.openDocument(d)
+        val paths=ProjectPackage.importImageSequence(this,uris); if(paths.isEmpty()) return
+        val first=android.graphics.BitmapFactory.decodeFile(paths.first())
+        val w=first?.width?:1280; val h=first?.height?:720; first?.recycle()
+        val p=ProjectStore.create("Image sequence",24,w,h)
+        val d=AnimationDocument(p.name,w,h,24,paths.size)
+        val layer=d.activeLayer.apply { name="Image sequence" }
+        paths.forEachIndexed { i,path -> layer.frames[i]=DrawingFrame(rasterPath=path) }
+        d.normalize(); ProjectDocumentStore.save(this,p.id,d); ProjectStore.touch(p); openEditor(d,p)
     }
 
     override fun onBackPressed() {
-        editor.closeProjectToHome()
+        if(inEditor) showHome() else super.onBackPressed()
     }
 }
