@@ -46,7 +46,7 @@ class MainActivity : Activity() {
     private fun openEditor(document: AnimationDocument, project: AnimationProject) {
         inEditor = true
         menuOpen = false
-        editor.openDocument(document)
+        editor.openDocument(document, project)
         ProjectStore.touch(project)
         setContentView(editor)
         editor.invalidate()
@@ -59,9 +59,8 @@ class MainActivity : Activity() {
             if (!menuOpen && x < 60f && y < 60f) {
                 menuOpen = true
             } else if (menuOpen && x < 300f) {
-                // Exact vertical bands from the supplied reference menu.
                 when (y) {
-                    in 78f..146f -> { editor.dismissMenu(); showHome(); return true } // Close project
+                    in 78f..146f -> { editor.dismissMenu(); showHome(); return true }
                     in 147f..214f -> { editor.dismissMenu(); createExport(AnimationExportEngine.Format.MP4); menuOpen=false; return true }
                     in 215f..280f -> { editor.dismissMenu(); pickAudio(); menuOpen=false; return true }
                     in 281f..346f -> { editor.dismissMenu(); pickImages(); menuOpen=false; return true }
@@ -181,10 +180,7 @@ class MainActivity : Activity() {
                 ProjectDocumentStore.save(this,p.id,d)
                 openEditor(d,p)
             } }
-            CREATE_PROJECT -> data?.data?.let { output ->
-                val d=editor.documentForExport()
-                ProjectPackage.export(this,output,d)
-            }
+            CREATE_PROJECT -> data?.data?.let { output -> ProjectPackage.export(this,output,editor.documentForExport()) }
         }
     }
 
@@ -199,7 +195,5 @@ class MainActivity : Activity() {
         d.normalize(); ProjectDocumentStore.save(this,p.id,d); ProjectStore.touch(p); openEditor(d,p)
     }
 
-    override fun onBackPressed() {
-        if(inEditor) showHome() else super.onBackPressed()
-    }
+    override fun onBackPressed() { if(inEditor) showHome() else super.onBackPressed() }
 }
