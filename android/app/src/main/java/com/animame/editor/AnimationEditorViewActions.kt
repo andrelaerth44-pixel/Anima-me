@@ -42,8 +42,7 @@ fun AnimationEditorViewV5.resizeDocument(newWidth: Int, newHeight: Int) {
 
 /** Replace the visible editor with an imported/decoded document and persist it. */
 fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
-    val d = imported
-    d.normalize()
+    val d = imported.apply { normalize() }
     val p = AnimationProject(
         name = d.name.ifBlank { "Imported project" },
         fps = d.fps,
@@ -53,7 +52,6 @@ fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
         canvasHeight = d.height,
         lastFrame = d.currentFrame
     )
-    ProjectStore.projects.removeAll { it.id == p.id }
     ProjectStore.projects.add(0, p)
     ProjectStore.touch(p)
     ProjectDocumentStore.save(context, p.id, d)
@@ -64,21 +62,21 @@ fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
     setPrivate("cw", d.width)
     setPrivate("ch", d.height)
     setPrivate("selectedLayerId", d.activeLayer.id)
-    val modeField = AnimationEditorViewV5::class.java.getDeclaredField("mode")
-    modeField.isAccessible = true
-    val home = modeField.type.asSubclass(Enum::class.java)
-    modeField.set(this, java.lang.Enum.valueOf(home, "EDITOR"))
+    setPrivate("cameraX", d.camera.x)
+    setPrivate("cameraY", d.camera.y)
+    setPrivate("cameraScale", d.camera.scale)
+    setPrivate("cameraRotation", d.camera.rotation)
+    setEnum("mode", "EDITOR")
     invalidate()
 }
 
-/** Attach audio to the active document; if no document exists, create one. */
+/** Attach audio to the currently open document and persist it. */
 fun AnimationEditorViewV5.attachAudio(path: String) {
     val d = readDocument()
     d.audioPath = path
     d.audioStartFrame = d.currentFrame
     d.normalize()
     syncProjectMetadata(d)
-    ProjectStore.projects.firstOrNull()?.let { ProjectDocumentStore.save(context, it.id, d) }
     invalidate()
 }
 
@@ -89,13 +87,8 @@ fun AnimationEditorViewV5.exportProjectPackage() {
 
 /** Return to the project browser without terminating the Android activity. */
 fun AnimationEditorViewV5.closeProjectToHome() {
-    runCatching {
-        val modeField = AnimationEditorViewV5::class.java.getDeclaredField("mode")
-        modeField.isAccessible = true
-        val modeType = modeField.type.asSubclass(Enum::class.java)
-        modeField.set(this, java.lang.Enum.valueOf(modeType, "HOME"))
-        invalidate()
-    }
+    setEnum("mode", "HOME")
+    invalidate()
 }
 
 private fun AnimationEditorViewV5.readDocument(): AnimationDocument {
@@ -107,6 +100,14 @@ private fun AnimationEditorViewV5.readDocument(): AnimationDocument {
 private fun AnimationEditorViewV5.setPrivate(name: String, value: Any?) {
     val field = AnimationEditorViewV5::class.java.getDeclaredField(name)
     field.isAccessible = true
+    field.set(this, value)
+}
+
+private fun AnimationEditorViewV5.setEnum(name: String, constant: String) {
+    val field = AnimationEditorViewV5::class.java.getDeclaredField(name)
+    field.isAccessible = true
+    val value = field.type.enumConstants.firstOrNull { (it as Enum<*>).name == constant }
+        ?: error("Unknown ${field.type.name} constant: $constant")
     field.set(this, value)
 }
 
