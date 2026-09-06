@@ -61,7 +61,7 @@ class MainActivity : Activity() {
             } else if (menuOpen && x < 300f) {
                 when (y) {
                     in 78f..146f -> { editor.dismissMenu(); showHome(); return true }
-                    in 147f..214f -> { editor.dismissMenu(); createExport(AnimationExportEngine.Format.MP4); menuOpen=false; return true }
+                    in 147f..214f -> { editor.dismissMenu(); showExportDialog(); menuOpen=false; return true }
                     in 215f..280f -> { editor.dismissMenu(); pickAudio(); menuOpen=false; return true }
                     in 281f..346f -> { editor.dismissMenu(); pickImages(); menuOpen=false; return true }
                     in 347f..412f -> { editor.dismissMenu(); pickVideo(); menuOpen=false; return true }
@@ -77,35 +77,43 @@ class MainActivity : Activity() {
 
     private fun pickVideo() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "video/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "video/*"; addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }, PICK_VIDEO)
     }
 
     private fun pickImages() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "image/*"
-            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"; putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true); addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }, PICK_IMAGES)
     }
 
     private fun pickAudio() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "audio/*"
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "audio/*"; addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }, PICK_AUDIO)
     }
 
     private fun pickProject() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            type = "application/zip"
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"; addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }, PICK_PROJECT)
+    }
+
+    private fun showExportDialog() {
+        val options = arrayOf("MP4 video", "GIF", "PNG image sequence")
+        AlertDialog.Builder(this)
+            .setTitle("Export video")
+            .setItems(options) { _, which ->
+                when(which) {
+                    0 -> createExport(AnimationExportEngine.Format.MP4)
+                    1 -> createExport(AnimationExportEngine.Format.GIF)
+                    2 -> createExport(AnimationExportEngine.Format.PNG_SEQUENCE)
+                }
+            }.show()
     }
 
     private fun createExport(format: AnimationExportEngine.Format) {
@@ -125,75 +133,62 @@ class MainActivity : Activity() {
             AnimationExportEngine.Format.PNG_SEQUENCE -> CREATE_SEQUENCE
         }
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            type = mime
-            putExtra(Intent.EXTRA_TITLE, name)
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type=mime; putExtra(Intent.EXTRA_TITLE,name); addCategory(Intent.CATEGORY_OPENABLE)
         }, req)
     }
 
     fun exportProject() {
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            type = "application/zip"
-            putExtra(Intent.EXTRA_TITLE, "project.animame")
-            addCategory(Intent.CATEGORY_OPENABLE)
+            type="application/zip"; putExtra(Intent.EXTRA_TITLE,"project.animame"); addCategory(Intent.CATEGORY_OPENABLE)
         }, CREATE_PROJECT)
     }
 
     private fun changeFramerate() {
-        val input = EditText(this).apply { hint = "FPS"; setText(editor.currentFps().toString()); inputType = 2 }
+        val input=EditText(this).apply { hint="FPS"; setText(editor.currentFps().toString()); inputType=2 }
         AlertDialog.Builder(this).setTitle("Change framerate").setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Apply") { _, _ -> input.text.toString().toIntOrNull()?.let { editor.setDocumentFps(it) } }
-            .show()
+            .setNegativeButton("Cancel",null)
+            .setPositiveButton("Apply") { _,_ -> input.text.toString().toIntOrNull()?.let(editor::setDocumentFps) }.show()
     }
 
     private fun resizeCanvas() {
-        val box = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(40,0,40,0) }
-        val w = EditText(this).apply { hint="Width"; setText(editor.currentWidth().toString()); inputType=2 }
-        val h = EditText(this).apply { hint="Height"; setText(editor.currentHeight().toString()); inputType=2 }
+        val box=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(40,0,40,0) }
+        val w=EditText(this).apply { hint="Width"; setText(editor.currentWidth().toString()); inputType=2 }
+        val h=EditText(this).apply { hint="Height"; setText(editor.currentHeight().toString()); inputType=2 }
         box.addView(w); box.addView(h)
         AlertDialog.Builder(this).setTitle("Resize or crop/expand").setView(box)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Apply") { _, _ ->
+            .setNegativeButton("Cancel",null)
+            .setPositiveButton("Apply") { _,_ ->
                 val nw=w.text.toString().toIntOrNull(); val nh=h.text.toString().toIntOrNull()
-                if(nw!=null && nh!=null) editor.resizeDocument(nw,nh)
+                if(nw!=null&&nh!=null) editor.resizeDocument(nw,nh)
             }.show()
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(resultCode != RESULT_OK) return
+        if(resultCode!=RESULT_OK)return
         when(requestCode) {
-            PICK_VIDEO -> data?.data?.let { editor.importVideo(it) }
+            PICK_VIDEO -> data?.data?.let(editor::importVideo)
             CREATE_MP4 -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.MP4) }
             CREATE_GIF -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.GIF) }
             CREATE_SEQUENCE -> data?.data?.let { editor.exportVideo(it,AnimationExportEngine.Format.PNG_SEQUENCE) }
             PICK_IMAGES -> {
-                val uris=ArrayList<Uri>()
-                data?.clipData?.let { c -> for(i in 0 until c.itemCount) uris += c.getItemAt(i).uri }
-                data?.data?.let { if(uris.isEmpty()) uris += it }
-                if(uris.isNotEmpty()) createImageProject(uris)
+                val uris=ArrayList<Uri>(); data?.clipData?.let{c->for(i in 0 until c.itemCount)uris+=c.getItemAt(i).uri}; data?.data?.let{if(uris.isEmpty())uris+=it}
+                if(uris.isNotEmpty())createImageProject(uris)
             }
             PICK_AUDIO -> data?.data?.let { ProjectPackage.copyAudio(this,it)?.let(editor::attachAudio) }
             PICK_PROJECT -> data?.data?.let { ProjectPackage.importPackage(this,it)?.let { d ->
-                val p=ProjectStore.create(d.name,d.fps,d.width,d.height)
-                ProjectDocumentStore.save(this,p.id,d)
-                openEditor(d,p)
+                val p=ProjectStore.create(d.name,d.fps,d.width,d.height); ProjectDocumentStore.save(this,p.id,d); openEditor(d,p)
             } }
-            CREATE_PROJECT -> data?.data?.let { output -> ProjectPackage.export(this,output,editor.documentForExport()) }
+            CREATE_PROJECT -> data?.data?.let { ProjectPackage.export(this,it,editor.documentForExport()) }
         }
     }
 
-    private fun createImageProject(uris: List<Uri>) {
-        val paths=ProjectPackage.importImageSequence(this,uris); if(paths.isEmpty()) return
-        val first=android.graphics.BitmapFactory.decodeFile(paths.first())
-        val w=first?.width?:1280; val h=first?.height?:720; first?.recycle()
-        val p=ProjectStore.create("Image sequence",24,w,h)
-        val d=AnimationDocument(p.name,w,h,24,paths.size)
-        val layer=d.activeLayer.apply { name="Image sequence" }
-        paths.forEachIndexed { i,path -> layer.frames[i]=DrawingFrame(rasterPath=path) }
-        d.normalize(); ProjectDocumentStore.save(this,p.id,d); ProjectStore.touch(p); openEditor(d,p)
+    private fun createImageProject(uris:List<Uri>) {
+        val paths=ProjectPackage.importImageSequence(this,uris); if(paths.isEmpty())return
+        val first=android.graphics.BitmapFactory.decodeFile(paths.first()); val w=first?.width?:1280; val h=first?.height?:720; first?.recycle()
+        val p=ProjectStore.create("Image sequence",24,w,h); val d=AnimationDocument(p.name,w,h,24,paths.size); val layer=d.activeLayer.apply{name="Image sequence"}
+        paths.forEachIndexed{i,path->layer.frames[i]=DrawingFrame(rasterPath=path)}; d.normalize(); ProjectDocumentStore.save(this,p.id,d); ProjectStore.touch(p); openEditor(d,p)
     }
 
-    override fun onBackPressed() { if(inEditor) showHome() else super.onBackPressed() }
+    override fun onBackPressed(){if(inEditor)showHome()else super.onBackPressed()}
 }
