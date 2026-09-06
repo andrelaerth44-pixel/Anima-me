@@ -39,6 +39,7 @@ class EditorView(context: Context) : View(context) {
         text(c, "Untitled", 116f, 32f, Color.LTGRAY, 12f)
         text(c, "24 FPS", w - 116f, 32f, Color.LTGRAY, 12f)
         text(c, "100%", w - 58f, 32f, Color.WHITE, 12f)
+        drawTopPanels(c, w)
 
         drawRail(c, top, h - bottom)
 
@@ -52,6 +53,20 @@ class EditorView(context: Context) : View(context) {
 
         if (openPanel != null) drawPanel(c, w - right, top, right, h - bottom)
         drawTimeline(c, h, w)
+    }
+
+    private fun drawTopPanels(c: Canvas, w: Float) {
+        val labels = listOf("OPTIONS", "BRUSHES", "LAYERS", "TIMELINE", "CAMERA")
+        val panels = Panel.values()
+        var x = 190f
+        labels.forEachIndexed { i, label ->
+            val active = openPanel == panels[i]
+            uiPaint.color = if (active) Color.rgb(68, 73, 81) else Color.rgb(43, 46, 50)
+            c.drawRoundRect(x, 9f, x + 76f, 41f, 7f, 7f, uiPaint)
+            text(c, label, x + 9f, 29f, Color.WHITE, 8f)
+            x += 82f
+            if (x > w - 180f) return
+        }
     }
 
     private fun drawRail(c: Canvas, top: Float, bottom: Float) {
@@ -69,7 +84,7 @@ class EditorView(context: Context) : View(context) {
     private fun drawPanel(c: Canvas, x: Float, top: Float, width: Float, bottom: Float) {
         uiPaint.color = Color.rgb(29, 31, 34); c.drawRect(x, top, x + width, bottom, uiPaint)
         text(c, when (openPanel) { Panel.OPTIONS -> "TOOL OPTIONS"; Panel.BRUSHES -> "BRUSH LIBRARY"; Panel.LAYERS -> "LAYERS"; Panel.TIMELINE -> "TIMELINE"; Panel.CAMERA -> "CAMERA / TRANSFORM" }, x + 14f, top + 28f, Color.WHITE, 13f)
-        text(c, "TAP TO CLOSE", x + width - 92f, top + 28f, Color.GRAY, 9f)
+        text(c, "TAP HEADER TO CLOSE", x + width - 128f, top + 28f, Color.GRAY, 8f)
         when (openPanel) {
             Panel.OPTIONS -> drawOptions(c, x + 14f, top + 56f, width - 28f)
             Panel.BRUSHES -> drawBrushes(c, x + 14f, top + 56f, width - 28f)
@@ -88,10 +103,11 @@ class EditorView(context: Context) : View(context) {
             value(c, "FLOW", "${(flow * 100).toInt()}%", x, y + 144f, width)
             value(c, "SPACING", "${(spacing * 100).toInt()}%", x, y + 192f, width)
             value(c, "SMOOTHING", "${(smoothing * 100).toInt()}%", x, y + 240f, width)
-            text(c, "PRESSURE  ${if (tool == Tool.PENCIL) "ON" else "ON"}", x, y + 294f, Color.LTGRAY, 11f)
+            text(c, "PRESSURE   ON", x, y + 294f, Color.LTGRAY, 11f)
             text(c, "HARDNESS   100%", x, y + 318f, Color.LTGRAY, 11f)
             text(c, "LOCK ALPHA   OFF", x, y + 342f, Color.LTGRAY, 11f)
             text(c, "DRAW ORDER  OVER ALL", x, y + 366f, Color.LTGRAY, 11f)
+            text(c, "ENGINE      ${selectedBrush.engine.name}", x, y + 390f, Color.GRAY, 9f)
         } else {
             value(c, "TOOL", tool.name, x, y, width)
             value(c, "MODE", "Standard", x, y + 48f, width)
@@ -104,10 +120,10 @@ class EditorView(context: Context) : View(context) {
         for (family in BrushCatalog.families) {
             text(c, family, x, yy, Color.WHITE, 11f); yy += 21f
             val items = BrushCatalog.presets.filter { it.family == family }
-            for (p in items.take(3)) {
+            for (p in items) {
                 text(c, if (p.id == selectedBrush.id) "• ${p.name}" else "  ${p.name}", x + 8f, yy, if (p.id == selectedBrush.id) Color.WHITE else Color.GRAY, 10f)
                 yy += 18f
-                if (yy > height - 155f) return
+                if (yy > height - 145f) return
             }
             yy += 5f
         }
@@ -182,16 +198,49 @@ class EditorView(context: Context) : View(context) {
     override fun onTouchEvent(e: MotionEvent): Boolean {
         val x = e.x; val y = e.y; val w = width.toFloat(); val h = height.toFloat()
         if (e.action == MotionEvent.ACTION_DOWN) {
+            // Every panel follows the same rule: tap its header to close it.
+            if (openPanel != null && x >= w - 292f && y in 50f..88f) { openPanel = null; invalidate(); return true }
+
+            // Top panel buttons: tap opens; tapping the already-open panel closes it.
+            val panelNames = Panel.values()
+            if (y in 8f..44f && x >= 190f) {
+                val idx = ((x - 190f) / 82f).toInt()
+                if (idx in panelNames.indices) {
+                    openPanel = if (openPanel == panelNames[idx]) null else panelNames[idx]
+                    invalidate(); return true
+                }
+            }
+
             if (x < 62f && y in 50f..(h - 112f)) {
-                val idx = ((y - 53f) / 42f).toInt().coerceIn(0, Tool.values().lastIndex); tool = Tool.values()[idx]; openPanel = Panel.OPTIONS; invalidate(); return true
+                val idx = ((y - 53f) / 42f).toInt().coerceIn(0, Tool.values().lastIndex)
+                tool = Tool.values()[idx]; openPanel = Panel.OPTIONS; invalidate(); return true
             }
-            val panelX = w - 292f
-            if (openPanel != null && x >= panelX && y in 50f..88f) { openPanel = null; invalidate(); return true }
-            if (openPanel == null && x >= w - 230f && y < 50f) { openPanel = Panel.OPTIONS; invalidate(); return true }
-            if (openPanel != null && x >= panelX && y in 88f..130f) {
-                openPanel = if (openPanel == Panel.OPTIONS) Panel.BRUSHES else Panel.OPTIONS; invalidate(); return true
+
+            if (openPanel == Panel.BRUSHES && x >= w - 292f) {
+                val listTop = 50f + 56f + 24f
+                val relative = y - listTop
+                if (relative >= 0f) {
+                    var cursor = 0f
+                    for (family in BrushCatalog.families) {
+                        cursor += 21f
+                        val items = BrushCatalog.presets.filter { it.family == family }
+                        for (preset in items) {
+                            if (relative in cursor..(cursor + 18f)) {
+                                selectedBrush = preset
+                                tool = when (preset.engine) { Engine.VECTOR -> Tool.BRUSH; Engine.TOONZ_RASTER -> Tool.PENCIL; Engine.FULL_COLOR_MYPAINT -> Tool.BRUSH }
+                                openPanel = Panel.OPTIONS
+                                invalidate(); return true
+                            }
+                            cursor += 18f
+                        }
+                        cursor += 5f
+                    }
+                }
             }
-            val canvasLeft = 72f; val canvasRight = w - if (openPanel == null) 72f else 302f
+
+            // Drawing area.
+            val canvasLeft = 72f
+            val canvasRight = w - if (openPanel == null) 72f else 302f
             if (x in canvasLeft..canvasRight && y in 60f..(h - 124f) && (tool == Tool.BRUSH || tool == Tool.PENCIL || tool == Tool.ERASER)) {
                 current = Path().apply { moveTo(x, y) }; invalidate(); return true
             }
