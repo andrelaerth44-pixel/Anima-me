@@ -5,7 +5,8 @@ data class BrushPreset(
     val name: String,
     val family: String,
     val engine: Engine,
-    val assetFolder: String? = null
+    val assetFolder: String? = null,
+    val defaults: BrushSettings = BrushDefaults.forPreset(id)
 )
 
 enum class Engine { TOONZ_RASTER, FULL_COLOR_MYPAINT, VECTOR, PROCEDURAL }
