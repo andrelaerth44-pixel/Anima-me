@@ -28,4 +28,4 @@ data class AnimationDocument(var name:String="Untitled",var width:Int=1280,var h
  fun deleteLayer(layerId:String){if(layers.size>1)layers.removeAll{it.id==layerId}}
  fun moveLayer(layerId:String,delta:Int){val i=layers.indexOfFirst{it.id==layerId};if(i<0)return;val ni=(i+delta).coerceIn(0,layers.lastIndex);if(i!=ni)layers.add(ni,layers.removeAt(i))}
 }
-fun StrokeData.points():List<PointF>=samples.map{PointF(it.x,it.y)}
+fun StrokeData.points():List<PointF> = samples.map{PointF(it.x,it.y)}
