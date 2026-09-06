@@ -75,7 +75,8 @@ class MainActivity : Activity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    private fun pickVideo() {
+    // Public entry points used by the editor's menu bridge.
+    fun pickVideo() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "video/*"; addCategory(Intent.CATEGORY_OPENABLE)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
@@ -116,7 +117,8 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    private fun createExport(format: AnimationExportEngine.Format) {
+    // Public entry point used by the editor's export bridge.
+    fun createExport(format: AnimationExportEngine.Format) {
         val mime = when (format) {
             AnimationExportEngine.Format.MP4 -> "video/mp4"
             AnimationExportEngine.Format.GIF -> "image/gif"
