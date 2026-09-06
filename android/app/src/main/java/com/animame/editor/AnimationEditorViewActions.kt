@@ -40,10 +40,10 @@ fun AnimationEditorViewV5.resizeDocument(newWidth: Int, newHeight: Int) {
     invalidate()
 }
 
-/** Replace the visible editor with an imported/decoded document and persist it. */
-fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
+/** Open a document already belonging to the selected project. */
+fun AnimationEditorViewV5.openDocument(imported: AnimationDocument, existingProject: AnimationProject? = null) {
     val d = imported.apply { normalize() }
-    val p = AnimationProject(
+    val p = existingProject ?: AnimationProject(
         name = d.name.ifBlank { "Imported project" },
         fps = d.fps,
         cameraWidth = d.width,
@@ -52,7 +52,7 @@ fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
         canvasHeight = d.height,
         lastFrame = d.currentFrame
     )
-    ProjectStore.projects.add(0, p)
+    if (ProjectStore.projects.none { it.id == p.id }) ProjectStore.projects.add(0, p)
     ProjectStore.touch(p)
     ProjectDocumentStore.save(context, p.id, d)
     setPrivate("document", d)
@@ -70,6 +70,9 @@ fun AnimationEditorViewV5.openDocument(imported: AnimationDocument) {
     invalidate()
 }
 
+/** Current document used by explicit project export. */
+fun AnimationEditorViewV5.documentForExport(): AnimationDocument = readDocument()
+
 /** Attach audio to the currently open document and persist it. */
 fun AnimationEditorViewV5.attachAudio(path: String) {
     val d = readDocument()
@@ -80,14 +83,18 @@ fun AnimationEditorViewV5.attachAudio(path: String) {
     invalidate()
 }
 
-/** Open the real project-export picker instead of leaving the old callback inert. */
 fun AnimationEditorViewV5.exportProjectPackage() {
     (context as? MainActivity)?.exportProject()
 }
 
-/** Return to the project browser without terminating the Android activity. */
 fun AnimationEditorViewV5.closeProjectToHome() {
     setEnum("mode", "HOME")
+    invalidate()
+}
+
+/** Hide the in-editor hamburger menu before Activity-level routing handles an action. */
+fun AnimationEditorViewV5.dismissMenu() {
+    runCatching { setPrivate("menu", false) }
     invalidate()
 }
 
