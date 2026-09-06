@@ -5,16 +5,5 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DocumentCodecTest {
-    @Test fun roundTripKeepsAnimationContent() {
-        val d = AnimationDocument(name="Demo", width=640, height=360, fps=30, duration=8)
-        val layer = d.activeLayer
-        val frame = layer.ensureFrame(3)
-        frame.strokes += StrokeData(brushId="ink", color=0xFF112233.toInt(), size=17f, opacity=.72f, samples=mutableListOf(StrokeSample(10f,20f,.5f,1,0.2f,0.3f), StrokeSample(40f,60f,1f,2,0.4f,0.5f)))
-        val restored = DocumentCodec.decode(DocumentCodec.encode(d))
-        assertEquals("Demo", restored.name)
-        assertEquals(640, restored.width); assertEquals(30, restored.fps)
-        assertTrue(restored.layers.first().frameAt(3)!!.strokes.isNotEmpty())
-        val s=restored.layers.first().frameAt(3)!!.strokes.first()
-        assertEquals("ink", s.brushId); assertEquals(2, s.samples.size); assertEquals(40f, s.samples[1].x, .001f)
-    }
+ @Test fun roundTripKeepsAnimationContent(){val d=AnimationDocument(name="Demo",width=1920,height=1080,fps=30,duration=12,currentFrame=4,audioPath="/data/audio/test.bin",audioStartFrame=2,audioOffsetMs=125,audioVolume=.65f);val layer=d.activeLayer;val f=layer.ensureFrame(4);f.exposure=3;f.rasterPath="/data/imports/frame.png";f.strokes+=StrokeData(brushId="ink",color=0xFF112233.toInt(),size=18f,opacity=.8f,samples=mutableListOf(StrokeSample(10f,20f,.5f,11,3f,4f)));val r=DocumentCodec.decode(DocumentCodec.encode(d));assertEquals("Demo",r.name);assertEquals(1920,r.width);assertEquals(1080,r.height);assertEquals(30,r.fps);assertEquals(12,r.duration);assertEquals(4,r.currentFrame);assertEquals(d.audioPath,r.audioPath);assertEquals(2,r.audioStartFrame);assertEquals(125,r.audioOffsetMs);assertEquals(.65f,r.audioVolume,.0001f);val rf=r.activeLayer.frameAt(4)!!;assertEquals(3,rf.exposure);assertEquals("/data/imports/frame.png",rf.rasterPath);assertTrue(rf.strokes.isNotEmpty());assertEquals("ink",rf.strokes[0].brushId);assertEquals(3f,rf.strokes[0].samples[0].tilt,.0001f)}
 }
