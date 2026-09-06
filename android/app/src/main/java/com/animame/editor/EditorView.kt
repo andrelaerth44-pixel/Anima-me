@@ -4,251 +4,34 @@ import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.max
+import kotlin.math.*
 
 class EditorView(context: Context) : View(context) {
     private enum class Tool { BRUSH, PENCIL, ERASER, LASSO, FILL, PICKER, MOVE, TRANSFORM, LINE, RECTANGLE, ELLIPSE }
-    private enum class Panel { OPTIONS, BRUSHES, LAYERS, TIMELINE, CAMERA }
-
-    private var tool = Tool.BRUSH
-    private var brushSize = 12f
-    private var opacity = 1f
-    private var flow = 1f
-    private var spacing = 0.12f
-    private var smoothing = 0.5f
-    private var selectedBrush = BrushCatalog.presets.first()
-    private var openPanel: Panel? = Panel.OPTIONS
-    private var current: Path? = null
-    private val strokes = mutableListOf<Pair<Path, Paint>>()
-    private val uiPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    init {
-        setBackgroundColor(Color.rgb(16, 17, 19))
-        textPaint.typeface = Typeface.create("sans", Typeface.NORMAL)
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-    }
-
-    override fun onDraw(c: Canvas) {
-        super.onDraw(c)
-        val w = width.toFloat(); val h = height.toFloat()
-        val left = 62f; val right = if (openPanel == null) 62f else 292f; val top = 50f; val bottom = 112f
-
-        uiPaint.color = Color.rgb(27, 29, 32); c.drawRect(0f, 0f, w, top, uiPaint)
-        text(c, "ANIMA-ME", 14f, 32f, Color.WHITE, 15f)
-        text(c, "Untitled", 116f, 32f, Color.LTGRAY, 12f)
-        text(c, "24 FPS", w - 116f, 32f, Color.LTGRAY, 12f)
-        text(c, "100%", w - 58f, 32f, Color.WHITE, 12f)
-        drawTopPanels(c, w)
-
-        drawRail(c, top, h - bottom)
-
-        val canvasLeft = left + 10f
-        val canvasRight = w - right - 10f
-        val canvasTop = top + 10f
-        val canvasBottom = h - bottom - 10f
-        uiPaint.color = Color.rgb(244, 244, 244); c.drawRect(canvasLeft, canvasTop, canvasRight, canvasBottom, uiPaint)
-        for ((path, paint) in strokes) c.drawPath(path, paint)
-        current?.let { c.drawPath(it, makePaint()) }
-
-        if (openPanel != null) drawPanel(c, w - right, top, right, h - bottom)
-        drawTimeline(c, h, w)
-    }
-
-    private fun drawTopPanels(c: Canvas, w: Float) {
-        val labels = listOf("OPTIONS", "BRUSHES", "LAYERS", "TIMELINE", "CAMERA")
-        val panels = Panel.values()
-        var x = 190f
-        labels.forEachIndexed { i, label ->
-            val active = openPanel == panels[i]
-            uiPaint.color = if (active) Color.rgb(68, 73, 81) else Color.rgb(43, 46, 50)
-            c.drawRoundRect(x, 9f, x + 76f, 41f, 7f, 7f, uiPaint)
-            text(c, label, x + 9f, 29f, Color.WHITE, 8f)
-            x += 82f
-            if (x > w - 180f) return
-        }
-    }
-
-    private fun drawRail(c: Canvas, top: Float, bottom: Float) {
-        uiPaint.color = Color.rgb(31, 33, 36); c.drawRect(0f, top, 62f, bottom, uiPaint)
-        val tools = Tool.values(); val step = 42f
-        tools.forEachIndexed { i, t ->
-            val y = top + 23f + i * step
-            if (y < bottom - 18f) {
-                if (t == tool) { uiPaint.color = Color.rgb(68, 73, 81); c.drawRoundRect(6f, y - 17f, 56f, y + 17f, 8f, 8f, uiPaint) }
-                icon(c, t, 31f, y)
-            }
-        }
-    }
-
-    private fun drawPanel(c: Canvas, x: Float, top: Float, width: Float, bottom: Float) {
-        uiPaint.color = Color.rgb(29, 31, 34); c.drawRect(x, top, x + width, bottom, uiPaint)
-        text(c, when (openPanel) { Panel.OPTIONS -> "TOOL OPTIONS"; Panel.BRUSHES -> "BRUSH LIBRARY"; Panel.LAYERS -> "LAYERS"; Panel.TIMELINE -> "TIMELINE"; Panel.CAMERA -> "CAMERA / TRANSFORM" }, x + 14f, top + 28f, Color.WHITE, 13f)
-        text(c, "TAP HEADER TO CLOSE", x + width - 128f, top + 28f, Color.GRAY, 8f)
-        when (openPanel) {
-            Panel.OPTIONS -> drawOptions(c, x + 14f, top + 56f, width - 28f)
-            Panel.BRUSHES -> drawBrushes(c, x + 14f, top + 56f, width - 28f)
-            Panel.LAYERS -> drawLayers(c, x + 14f, top + 56f)
-            Panel.TIMELINE -> drawTimelinePanel(c, x + 14f, top + 56f, width - 28f)
-            Panel.CAMERA -> drawCamera(c, x + 14f, top + 56f)
-            null -> Unit
-        }
-    }
-
-    private fun drawOptions(c: Canvas, x: Float, y: Float, width: Float) {
-        if (tool == Tool.BRUSH || tool == Tool.PENCIL || tool == Tool.ERASER) {
-            value(c, "BRUSH", selectedBrush.name, x, y, width)
-            value(c, "SIZE", "${brushSize.toInt()} px", x, y + 48f, width)
-            value(c, "OPACITY", "${(opacity * 100).toInt()}%", x, y + 96f, width)
-            value(c, "FLOW", "${(flow * 100).toInt()}%", x, y + 144f, width)
-            value(c, "SPACING", "${(spacing * 100).toInt()}%", x, y + 192f, width)
-            value(c, "SMOOTHING", "${(smoothing * 100).toInt()}%", x, y + 240f, width)
-            text(c, "PRESSURE   ON", x, y + 294f, Color.LTGRAY, 11f)
-            text(c, "HARDNESS   100%", x, y + 318f, Color.LTGRAY, 11f)
-            text(c, "LOCK ALPHA   OFF", x, y + 342f, Color.LTGRAY, 11f)
-            text(c, "DRAW ORDER  OVER ALL", x, y + 366f, Color.LTGRAY, 11f)
-            text(c, "ENGINE      ${selectedBrush.engine.name}", x, y + 390f, Color.GRAY, 9f)
-        } else {
-            value(c, "TOOL", tool.name, x, y, width)
-            value(c, "MODE", "Standard", x, y + 48f, width)
-        }
-    }
-
-    private fun drawBrushes(c: Canvas, x: Float, y: Float, width: Float) {
-        text(c, "ALL OPEN TOONZ BRUSH FAMILIES", x, y, Color.LTGRAY, 10f)
-        var yy = y + 24f
-        for (family in BrushCatalog.families) {
-            text(c, family, x, yy, Color.WHITE, 11f); yy += 21f
-            val items = BrushCatalog.presets.filter { it.family == family }
-            for (p in items) {
-                text(c, if (p.id == selectedBrush.id) "• ${p.name}" else "  ${p.name}", x + 8f, yy, if (p.id == selectedBrush.id) Color.WHITE else Color.GRAY, 10f)
-                yy += 18f
-                if (yy > height - 145f) return
-            }
-            yy += 5f
-        }
-    }
-
-    private fun drawLayers(c: Canvas, x: Float, y: Float) {
-        text(c, "+  NEW LAYER", x, y, Color.WHITE, 11f)
-        text(c, "EYE   Layer 3", x, y + 32f, Color.LTGRAY, 11f)
-        text(c, "EYE   Layer 2", x, y + 58f, Color.LTGRAY, 11f)
-        text(c, "EYE   Layer 1", x, y + 84f, Color.WHITE, 11f)
-        text(c, "LOCK   OPACITY   BLEND", x, y + 120f, Color.GRAY, 9f)
-    }
-
-    private fun drawTimelinePanel(c: Canvas, x: Float, y: Float, width: Float) {
-        text(c, "ONION SKIN   ON", x, y, Color.LTGRAY, 11f)
-        text(c, "PREVIOUS   2     NEXT   2", x, y + 28f, Color.LTGRAY, 11f)
-        text(c, "FRAME RATE   24 FPS", x, y + 56f, Color.LTGRAY, 11f)
-        text(c, "1    2    3    4    5    6    7    8", x, y + 92f, Color.WHITE, 11f)
-        text(c, "PLAYBACK     |<   <   PLAY   >   >|", x, y + 126f, Color.WHITE, 10f)
-    }
-
-    private fun drawCamera(c: Canvas, x: Float, y: Float) {
-        text(c, "POSITION     0, 0", x, y, Color.LTGRAY, 11f)
-        text(c, "SCALE        100%", x, y + 28f, Color.LTGRAY, 11f)
-        text(c, "ROTATION     0°", x, y + 56f, Color.LTGRAY, 11f)
-        text(c, "FLIP H / FLIP V", x, y + 84f, Color.LTGRAY, 11f)
-        text(c, "TRANSFORM ORIGIN: CENTER", x, y + 112f, Color.GRAY, 9f)
-    }
-
-    private fun drawTimeline(c: Canvas, h: Float, w: Float) {
-        uiPaint.color = Color.rgb(27, 29, 32); c.drawRect(0f, h - 112f, w, h, uiPaint)
-        text(c, "LAYERS", 12f, h - 82f, Color.LTGRAY, 10f)
-        text(c, "Layer 1", 70f, h - 82f, Color.WHITE, 11f)
-        text(c, "1    2    3    4    5    6    7    8", 170f, h - 82f, Color.LTGRAY, 11f)
-        text(c, "FRAME 001", w - 175f, h - 82f, Color.LTGRAY, 10f)
-        text(c, "|<   <   PLAY   >   >|", w - 175f, h - 38f, Color.WHITE, 11f)
-    }
-
-    private fun value(c: Canvas, label: String, v: String, x: Float, y: Float, width: Float) {
-        text(c, label, x, y, Color.GRAY, 9f); text(c, v, x, y + 20f, Color.WHITE, 12f)
-        uiPaint.color = Color.rgb(56, 59, 64); c.drawRect(x, y + 28f, x + width, y + 29f, uiPaint)
-    }
-
-    private fun icon(c: Canvas, t: Tool, cx: Float, cy: Float) {
-        uiPaint.color = Color.WHITE; uiPaint.style = Paint.Style.STROKE; uiPaint.strokeWidth = 2f
-        when (t) {
-            Tool.BRUSH -> { c.drawLine(cx - 8f, cy + 7f, cx + 7f, cy - 8f, uiPaint); c.drawCircle(cx + 8f, cy - 9f, 2f, uiPaint) }
-            Tool.PENCIL -> { c.drawLine(cx - 8f, cy + 8f, cx + 7f, cy - 7f, uiPaint); c.drawLine(cx - 9f, cy + 9f, cx - 5f, cy + 9f, uiPaint) }
-            Tool.ERASER -> c.drawRect(cx - 9f, cy - 6f, cx + 8f, cy + 7f, uiPaint)
-            Tool.LASSO -> c.drawOval(cx - 10f, cy - 8f, cx + 10f, cy + 8f, uiPaint)
-            Tool.FILL -> { c.drawRect(cx - 8f, cy - 7f, cx + 6f, cy + 6f, uiPaint); c.drawLine(cx + 5f, cy - 5f, cx + 10f, cy - 10f, uiPaint) }
-            Tool.PICKER -> { c.drawCircle(cx, cy, 8f, uiPaint); c.drawCircle(cx, cy, 2f, uiPaint) }
-            Tool.MOVE -> { c.drawLine(cx, cy - 10f, cx, cy + 10f, uiPaint); c.drawLine(cx - 10f, cy, cx + 10f, cy, uiPaint) }
-            Tool.TRANSFORM -> c.drawRect(cx - 8f, cy - 8f, cx + 8f, cy + 8f, uiPaint)
-            Tool.LINE -> c.drawLine(cx - 9f, cy + 8f, cx + 9f, cy - 8f, uiPaint)
-            Tool.RECTANGLE -> c.drawRect(cx - 9f, cy - 7f, cx + 9f, cy + 7f, uiPaint)
-            Tool.ELLIPSE -> c.drawOval(cx - 9f, cy - 7f, cx + 9f, cy + 7f, uiPaint)
-        }
-        uiPaint.style = Paint.Style.FILL
-    }
-
-    private fun makePaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK; alpha = (255 * opacity * flow).toInt().coerceIn(0, 255)
-        style = Paint.Style.STROKE; strokeWidth = max(1f, brushSize); strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-        if (tool == Tool.ERASER) xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-    }
-
-    private fun text(c: Canvas, s: String, x: Float, y: Float, color: Int, size: Float) {
-        textPaint.color = color; textPaint.textSize = size; c.drawText(s, x, y, textPaint)
-    }
-
-    override fun onTouchEvent(e: MotionEvent): Boolean {
-        val x = e.x; val y = e.y; val w = width.toFloat(); val h = height.toFloat()
-        if (e.action == MotionEvent.ACTION_DOWN) {
-            // Every panel follows the same rule: tap its header to close it.
-            if (openPanel != null && x >= w - 292f && y in 50f..88f) { openPanel = null; invalidate(); return true }
-
-            // Top panel buttons: tap opens; tapping the already-open panel closes it.
-            val panelNames = Panel.values()
-            if (y in 8f..44f && x >= 190f) {
-                val idx = ((x - 190f) / 82f).toInt()
-                if (idx in panelNames.indices) {
-                    openPanel = if (openPanel == panelNames[idx]) null else panelNames[idx]
-                    invalidate(); return true
-                }
-            }
-
-            if (x < 62f && y in 50f..(h - 112f)) {
-                val idx = ((y - 53f) / 42f).toInt().coerceIn(0, Tool.values().lastIndex)
-                tool = Tool.values()[idx]; openPanel = Panel.OPTIONS; invalidate(); return true
-            }
-
-            if (openPanel == Panel.BRUSHES && x >= w - 292f) {
-                val listTop = 50f + 56f + 24f
-                val relative = y - listTop
-                if (relative >= 0f) {
-                    var cursor = 0f
-                    for (family in BrushCatalog.families) {
-                        cursor += 21f
-                        val items = BrushCatalog.presets.filter { it.family == family }
-                        for (preset in items) {
-                            if (relative in cursor..(cursor + 18f)) {
-                                selectedBrush = preset
-                                tool = when (preset.engine) { Engine.VECTOR -> Tool.BRUSH; Engine.TOONZ_RASTER -> Tool.PENCIL; Engine.FULL_COLOR_MYPAINT -> Tool.BRUSH }
-                                openPanel = Panel.OPTIONS
-                                invalidate(); return true
-                            }
-                            cursor += 18f
-                        }
-                        cursor += 5f
-                    }
-                }
-            }
-
-            // Drawing area.
-            val canvasLeft = 72f
-            val canvasRight = w - if (openPanel == null) 72f else 302f
-            if (x in canvasLeft..canvasRight && y in 60f..(h - 124f) && (tool == Tool.BRUSH || tool == Tool.PENCIL || tool == Tool.ERASER)) {
-                current = Path().apply { moveTo(x, y) }; invalidate(); return true
-            }
-        } else if (e.action == MotionEvent.ACTION_MOVE && current != null) {
-            current!!.lineTo(x, y); invalidate(); return true
-        } else if (e.action == MotionEvent.ACTION_UP && current != null) {
-            current!!.lineTo(x, y); strokes += current!! to makePaint(); current = null; invalidate(); return true
-        }
-        return true
-    }
+    private enum class Panel { OPTIONS, BRUSHES, LAYERS, TIMELINE, CAMERA, RULERS }
+    private enum class Perspective { NONE, ONE, TWO, THREE }
+    private var tool=Tool.BRUSH; private var panel:Panel?=Panel.OPTIONS; private var perspective=Perspective.NONE; private var perspectiveSnap=true
+    private var stabilizer=55f; private var realTime=true; private var brushSize=12f; private var opacity=1f; private var flow=1f; private var spacing=.12f; private var antialias=true; private var pressure=true
+    private var gapRecognition=true; private var fillExpansion=2; private var fillStrength=24; private var selectedBrush=BrushCatalog.presets.first(); private var fillColor=Color.rgb(25,25,25)
+    private var bitmap:Bitmap?=null; private var bcanvas:Canvas?=null; private val points=mutableListOf<PointF>(); private var last:PointF?=null; private var lasso=Path(); private val ui=Paint(Paint.ANTI_ALIAS_FLAG); private val text=Paint(Paint.ANTI_ALIAS_FLAG)
+    init{setLayerType(View.LAYER_TYPE_SOFTWARE,null);text.typeface=Typeface.create("sans",Typeface.NORMAL)}
+    override fun onSizeChanged(w:Int,h:Int,ow:Int,oh:Int){if(w>0&&h>0){bitmap=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);bitmap!!.eraseColor(Color.WHITE);bcanvas=Canvas(bitmap!!)}}
+    private fun rect():RectF{val right=if(panel==null)62f else 300f;return RectF(72f,60f,width-right-10f,height-122f)}
+    override fun onDraw(c:Canvas){super.onDraw(c);val w=width.toFloat();val h=height.toFloat();ui.style=Paint.Style.FILL;ui.color=Color.rgb(16,17,19);c.drawRect(0f,0f,w,h,ui);ui.color=Color.rgb(27,29,32);c.drawRect(0f,0f,w,50f,ui);txt(c,"ANIMA-ME",14f,32f,Color.WHITE,15f);txt(c,"Untitled",116f,32f,Color.LTGRAY,12f);txt(c,"24 FPS",w-116f,32f,Color.LTGRAY,12f);tabs(c,w);rail(c,h);val r=rect();ui.color=Color.WHITE;c.drawRect(r,ui);bitmap?.let{c.save();c.clipRect(r);c.drawBitmap(it,null,r,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG));c.restore()};perspective(c,r);if(tool==Tool.LASSO&&!lasso.isEmpty){ui.style=Paint.Style.STROKE;ui.strokeWidth=2f;ui.color=Color.rgb(40,120,255);c.drawPath(lasso,ui);ui.style=Paint.Style.FILL};if(panel!=null)panel(c,w,h);timeline(c,w,h)}
+    private fun tabs(c:Canvas,w:Float){val ns=listOf("OPTIONS","BRUSHES","LAYERS","TIMELINE","CAMERA","RULERS");var x=190f;ns.forEachIndexed{i,n->if(x<w-55){ui.color=if(panel==Panel.values()[i])Color.rgb(68,73,81)else Color.rgb(43,46,50);c.drawRoundRect(x,9f,x+74f,41f,7f,7f,ui);txt(c,n,x+7f,29f,Color.WHITE,8f);x+=78f}}}
+    private fun rail(c:Canvas,h:Float){ui.color=Color.rgb(31,33,36);c.drawRect(0f,50f,62f,h-112f,ui);Tool.values().forEachIndexed{i,t->val y=73f+i*42f;if(y<h-130f){if(t==tool){ui.color=Color.rgb(68,73,81);c.drawRoundRect(5f,y-17f,57f,y+17f,8f,8f,ui)};icon(c,t,31f,y)}}}
+    private fun panel(c:Canvas,w:Float,h:Float){val x=w-300f;ui.color=Color.rgb(29,31,34);c.drawRect(x,50f,w,h-112f,ui);val title=when(panel){Panel.OPTIONS->"TOOL OPTIONS";Panel.BRUSHES->"BRUSH LIBRARY";Panel.LAYERS->"LAYERS";Panel.TIMELINE->"TIMELINE";Panel.CAMERA->"CAMERA / TRANSFORM";Panel.RULERS->"RULERS / PERSPECTIVE";null->""};txt(c,title,x+14f,78f,Color.WHITE,13f);txt(c,"TAP HEADER TO CLOSE",w-132f,78f,Color.GRAY,7f);when(panel){Panel.OPTIONS->options(c,x+14f,106f);Panel.BRUSHES->brushes(c,x+14f,106f);Panel.LAYERS->layers(c,x+14f,106f);Panel.TIMELINE->timelinePanel(c,x+14f,106f);Panel.CAMERA->camera(c,x+14f,106f);Panel.RULERS->rulers(c,x+14f,106f);null->Unit}}
+    private fun options(c:Canvas,x:Float,y:Float){if(tool==Tool.BRUSH||tool==Tool.PENCIL||tool==Tool.ERASER){row(c,"BRUSH",selectedBrush.name,x,y);row(c,"SIZE","${brushSize.toInt()} px",x,y+45);row(c,"OPACITY","${(opacity*100).toInt()}%",x,y+90);row(c,"FLOW","${(flow*100).toInt()}%",x,y+135);row(c,"SPACING","${(spacing*100).toInt()}%",x,y+180);row(c,"STABILIZER","${stabilizer.toInt()}%",x,y+225);txt(c,"REAL-TIME STABILIZER   ${if(realTime)"ON" else "OFF"}",x,y+289,Color.LTGRAY,10f);txt(c,"PRESSURE   ${if(pressure)"ON" else "OFF"}",x,y+315,Color.LTGRAY,10f);txt(c,"ANTI-ALIAS   ${if(antialias)"ON" else "OFF"}",x,y+341,Color.LTGRAY,10f);txt(c,"SMOOTH / PIXEL-FREE STROKE",x,y+367,Color.LTGRAY,10f)}else if(tool==Tool.FILL){row(c,"STRENGTH","$fillStrength",x,y);row(c,"EXPANSION","${fillExpansion}px",x,y+45);txt(c,"GAP RECOGNITION   ${if(gapRecognition)"ON" else "OFF"}",x,y+110,Color.LTGRAY,10f);txt(c,"UNDER LINE   ON",x,y+136,Color.LTGRAY,10f);txt(c,"REFERENCE   CANVAS",x,y+162,Color.LTGRAY,10f);txt(c,"CONTINUOUS FILL   ON",x,y+188,Color.LTGRAY,10f)}else{row(c,"TOOL",tool.name,x,y);row(c,"MODE","STANDARD",x,y+45)}}
+    private fun brushes(c:Canvas,x:Float,y:Float){txt(c,"OPEN TOONZ + AOTz + MYPAINT FAMILIES",x,y,Color.LTGRAY,9f);var yy=y+22;for(f in BrushCatalog.families){txt(c,f,x,yy,Color.WHITE,10f);yy+=18;for(p in BrushCatalog.presets.filter{it.family==f}){txt(c,if(p.id==selectedBrush.id)"• ${p.name}" else "  ${p.name}",x+6,yy,if(p.id==selectedBrush.id)Color.WHITE else Color.GRAY,9f);yy+=16;if(yy>height-135)return};yy+=3}}
+    private fun layers(c:Canvas,x:Float,y:Float){txt(c,"+ NEW LAYER",x,y,Color.WHITE,11f);listOf("Layer 3","Layer 2","Layer 1").forEachIndexed{i,s->txt(c,"EYE   $s",x,y+32+i*27,Color.LTGRAY,10f)};txt(c,"LOCK   OPACITY   BLEND",x,y+115,Color.GRAY,9f)}
+    private fun timelinePanel(c:Canvas,x:Float,y:Float){txt(c,"ONION SKIN   ON",x,y,Color.LTGRAY,10f);txt(c,"PREVIOUS 2   NEXT 2",x,y+28,Color.LTGRAY,10f);txt(c,"24 FPS",x,y+56,Color.LTGRAY,10f);txt(c,"1  2  3  4  5  6  7  8",x,y+84,Color.WHITE,10f)}
+    private fun camera(c:Canvas,x:Float,y:Float){txt(c,"POSITION   0,0",x,y,Color.LTGRAY,10f);txt(c,"SCALE      100%",x,y+28,Color.LTGRAY,10f);txt(c,"ROTATION   0°",x,y+56,Color.LTGRAY,10f);txt(c,"FLIP H / FLIP V",x,y+84,Color.LTGRAY,10f)}
+    private fun rulers(c:Canvas,x:Float,y:Float){txt(c,"PERSPECTIVE",x,y,Color.WHITE,11f);txt(c,"1 POINT   ${if(perspective==Perspective.ONE)"ON" else "OFF"}",x,y+30,Color.LTGRAY,10f);txt(c,"2 POINT   ${if(perspective==Perspective.TWO)"ON" else "OFF"}",x,y+56,Color.LTGRAY,10f);txt(c,"3 POINT   ${if(perspective==Perspective.THREE)"ON" else "OFF"}",x,y+82,Color.LTGRAY,10f);txt(c,"SNAP TO PERSPECTIVE   ${if(perspectiveSnap)"ON" else "OFF"}",x,y+112,Color.LTGRAY,10f);txt(c,"HORIZONTAL / VERTICAL RULER",x,y+142,Color.LTGRAY,10f);txt(c,"GRID / FIELD GUIDE / SAFE AREA",x,y+168,Color.LTGRAY,10f);txt(c,"TAPE / GAP CHECK / FILL CHECK",x,y+194,Color.LTGRAY,10f)}
+    private fun perspective(c:Canvas,r:RectF){if(perspective==Perspective.NONE)return;ui.style=Paint.Style.STROKE;ui.strokeWidth=1f;ui.color=Color.rgb(120,150,190);val h=r.centerY();val l=r.left;val rr=r.right;val t=r.top;val b=r.bottom;c.drawLine(l,h,rr,h,ui);if(perspective==Perspective.ONE){val vx=r.centerX();for(i in 1..8){val xx=l+(rr-l)*i/9f;c.drawLine(vx,h,xx,t,ui);c.drawLine(vx,h,xx,b,ui)}}else{val a=PointF(l+(rr-l)*.22f,h);val z=PointF(rr-(rr-l)*.22f,h);c.drawCircle(a.x,a.y,5f,ui);c.drawCircle(z.x,z.y,5f,ui);for(i in 0..7){val yy=t+(b-t)*i/7f;c.drawLine(a.x,a.y,rr,yy,ui);c.drawLine(z.x,z.y,l,yy,ui)};if(perspective==Perspective.THREE){val v=PointF(r.centerX(),t-90f);c.drawCircle(v.x,v.y,5f,ui);for(xx in listOf(l,r.centerX(),rr))c.drawLine(v.x,v.y,xx,b,ui)}};ui.style=Paint.Style.FILL}
+    private fun timeline(c:Canvas,w:Float,h:Float){ui.color=Color.rgb(27,29,32);c.drawRect(0f,h-112f,w,h,ui);txt(c,"LAYERS",12f,h-82f,Color.LTGRAY,10f);txt(c,"Layer 1",70f,h-82f,Color.WHITE,10f);txt(c,"1  2  3  4  5  6  7  8",170f,h-82f,Color.LTGRAY,10f);txt(c,"|<   <   PLAY   >   >|",w-175f,h-38f,Color.WHITE,10f)}
+    private fun row(c:Canvas,l:String,v:String,x:Float,y:Float){txt(c,l,x,y,Color.GRAY,8f);txt(c,v,x,y+19,Color.WHITE,11f);ui.color=Color.rgb(56,59,64);c.drawRect(x,y+27,x+270,y+28,ui)}
+    private fun brushPaint():Paint=Paint(if(antialias)Paint.ANTI_ALIAS_FLAG else 0).apply{color=if(tool==Tool.ERASER)Color.TRANSPARENT else fillColor;alpha=(255*opacity*flow).toInt().coerceIn(0,255);style=Paint.Style.STROKE;strokeWidth=max(1.5f,brushSize);strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND;if(tool==Tool.ERASER)xfermode=PorterDuffXfermode(PorterDuff.Mode.CLEAR)}
+    override fun onTouchEvent(e:MotionEvent):Boolean{val x=e.x;val y=e.y;val w=width.toFloat();val h=height.toFloat();if(e.action==MotionEvent.ACTION_DOWN){if(panel!=null&&x>=w-300&&y<92){panel=null;invalidate();return true};if(y in 8f..44f&&x>=190){val i=((x-190)/78).toInt();if(i in Panel.values().indices){val p=Panel.values()[i];panel=if(panel==p)null else p;invalidate();return true}};if(x<62&&y in 50f..h-112f){val i=((y-53)/42).toInt().coerceIn(0,Tool.values().lastIndex);tool=Tool.values()[i];panel=Panel.OPTIONS;invalidate();return true};if(!rect().contains(x,y))return true;points.clear();points.add(PointF(x,y));last=PointF(x,y);if(tool==Tool.FILL){BucketEngine.fill(bitmap!!,x.toInt(),y.toInt(),fillColor,BucketEngine.Settings(fillStrength,fillExpansion,gapRecognition,3,true));invalidate();return true};if(tool==Tool.LASSO){lasso.reset();lasso.moveTo(x,y);invalidate();return true};return true};if(e.action==MotionEvent.ACTION_MOVE){if(tool==Tool.LASSO){lasso.lineTo(x,y);invalidate();return true};if(points.isNotEmpty()){points.add(PointF(x,y));if(realTime&&points.size>2){bcanvas?.drawPath(Stabilizer.smooth(points.takeLast(10),stabilizer/100f),brushPaint());points.clear();points.add(PointF(x,y))}else{last?.let{bcanvas?.drawLine(it.x,it.y,x,y,brushPaint())};last=PointF(x,y)};invalidate();return true}};if(e.action==MotionEvent.ACTION_UP){if(tool==Tool.LASSO){lasso.close();invalidate();return true};if(points.size>1&&!realTime){bcanvas?.drawPath(Stabilizer.smooth(points,stabilizer/100f),brushPaint())};points.clear();last=null;invalidate();return true};return true}
+    private fun icon(c:Canvas,t:Tool,x:Float,y:Float){ui.color=Color.WHITE;ui.style=Paint.Style.STROKE;ui.strokeWidth=2f;when(t){Tool.BRUSH->c.drawCircle(x,y,8f,ui);Tool.PENCIL->c.drawLine(x-8,y+8,x+8,y-8,ui);Tool.ERASER->c.drawRect(x-9,y-6,x+9,y+7,ui);Tool.LASSO->c.drawOval(x-10,y-8,x+10,y+8,ui);Tool.FILL->c.drawRect(x-8,y-7,x+6,y+6,ui);Tool.PICKER->c.drawCircle(x,y,8f,ui);Tool.MOVE->{c.drawLine(x,y-9,x,y+9,ui);c.drawLine(x-9,y,x+9,y,ui)};Tool.TRANSFORM->c.drawRect(x-8,y-8,x+8,y+8,ui);Tool.LINE->c.drawLine(x-9,y+8,x+9,y-8,ui);Tool.RECTANGLE->c.drawRect(x-9,y-7,x+9,y+7,ui);Tool.ELLIPSE->c.drawOval(x-9,y-7,x+9,y+7,ui)};ui.style=Paint.Style.FILL}
+    private fun txt(c:Canvas,s:String,x:Float,y:Float,color:Int,size:Float){text.color=color;text.textSize=size;c.drawText(s,x,y,text)}
 }
