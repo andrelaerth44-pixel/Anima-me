@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "android-animation-editor" ]
   pull_request:
-    branches: [ "copilot/add-liquify-tool" ]
+    branches: [ "android-animation-editor" ]
   workflow_dispatch:
 
 jobs:
