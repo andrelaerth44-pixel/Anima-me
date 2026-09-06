@@ -20,13 +20,14 @@ object Stabilizer {
         if (samples.size == 1) { out.moveTo(samples[0].point.x, samples[0].point.y); return out }
 
         val s = strength.coerceIn(0f, 100f) / 100f
-        val radius = if (realTime) 1f + s * 7f else 1f + s * 11f
+        val radius = if (realTime) 1 + (s * 5f).toInt() else 1 + (s * 11f).toInt()
         val filtered = ArrayList<PointF>(samples.size)
 
         for (i in samples.indices) {
-            val window = max(1, radius.toInt())
-            val a = max(0, i - window)
-            val b = min(samples.lastIndex, i + window)
+            // Real-time drawing must never look into future samples: doing so creates
+            // visible lag and makes the line appear displaced from the finger/stylus.
+            val a = if (realTime) max(0, i - radius) else max(0, i - radius)
+            val b = if (realTime) i else min(samples.lastIndex, i + radius)
             var sx = 0f; var sy = 0f; var total = 0f
             for (j in a..b) {
                 val w = 1f / (1f + abs(j - i).toFloat())
