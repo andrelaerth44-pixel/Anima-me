@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.TextView
 
 /** Project browser matching the supplied RoughAnimator reference flow. */
 class ProjectHomeView(
@@ -31,16 +32,13 @@ class ProjectHomeView(
 
         val projects = if(sortByName) ProjectStore.projects.sortedBy { it.name.lowercase() } else ProjectStore.projects.toList()
         var y=58f
-        if(projects.isEmpty()) {
-            text(c,"No projects",40f,100f,Color.LTGRAY,14f,false)
-        } else {
-            projects.forEach { p ->
-                round(c,8f,y,width/2f-8f,y+64f,Color.rgb(69,72,77),2f)
-                paint.color=Color.WHITE; c.drawRect(16f,y+17f,62f,y+47f,paint)
-                text(c,p.name,72f,y+32f,Color.WHITE,14f,false)
-                text(c,"${p.fps} fps • ${p.cameraWidth}×${p.cameraHeight}",72f,y+51f,Color.LTGRAY,9f,false)
-                y += 70f
-            }
+        if(projects.isEmpty()) text(c,"No projects",40f,100f,Color.LTGRAY,14f,false)
+        else projects.forEach { p ->
+            round(c,8f,y,width/2f-8f,y+64f,Color.rgb(69,72,77),2f)
+            paint.color=Color.WHITE; c.drawRect(16f,y+17f,62f,y+47f,paint)
+            text(c,p.name,72f,y+32f,Color.WHITE,14f,false)
+            text(c,"${p.fps} fps • ${p.cameraWidth}×${p.cameraHeight}",72f,y+51f,Color.LTGRAY,9f,false)
+            y += 70f
         }
         round(c,width/2f+8f,height-56f,width-8f,height-8f,Color.rgb(92,92,92),5f)
         text(c,"New project",width*0.75f,height-27f,Color.WHITE,13f,false)
@@ -58,30 +56,40 @@ class ProjectHomeView(
             val d=ProjectDocumentStore.load(context,p.id) ?: AnimationDocument(p.name,p.canvasWidth,p.canvasHeight,p.fps,1)
             ProjectStore.touch(p)
             onOpen(d,p)
-            return true
         }
         return true
     }
 
     private fun showCreateDialog() {
         val box=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL; setPadding(24,0,24,0) }
-        val name=EditText(context).apply { hint="Project name"; setText("Untitled") }
-        val fps=EditText(context).apply { hint="Frames per second"; setText("24"); inputType=2 }
-        val w=EditText(context).apply { hint="Drawing width"; setText("1280"); inputType=2 }
-        val h=EditText(context).apply { hint="Drawing height"; setText("720"); inputType=2 }
-        box.addView(name);box.addView(fps);box.addView(w);box.addView(h)
-        AlertDialog.Builder(context)
-            .setTitle("New project")
-            .setView(box)
+        fun field(label:String,value:String): EditText {
+            box.addView(TextView(context).apply { text=label; setTextColor(Color.LTGRAY); textSize=13f; setPadding(0,10,0,0) })
+            return EditText(context).apply { setText(value); inputType=2 }.also(box::addView)
+        }
+        val name=EditText(context).apply { hint="New project name"; setText("Untitled") }
+        box.addView(TextView(context).apply { text="New project name"; setTextColor(Color.LTGRAY); textSize=13f; setPadding(0,10,0,0) })
+        box.addView(name)
+        val fps=field("Frames per second","24")
+        val w=field("Camera width","1280")
+        val h=field("Camera height","720")
+        val mw=field("+ Margins width","0")
+        val mh=field("+ Margins height","0")
+
+        AlertDialog.Builder(context).setTitle("New project").setView(box)
             .setNegativeButton("Cancel",null)
             .setPositiveButton("Okay") { _,_ ->
                 val n=name.text.toString().trim().ifBlank { "Untitled" }
                 val f=fps.text.toString().toIntOrNull()?.coerceIn(1,240) ?: 24
                 val ww=w.text.toString().toIntOrNull()?.coerceIn(1,16384) ?: 1280
                 val hh=h.text.toString().toIntOrNull()?.coerceIn(1,16384) ?: 720
-                val p=ProjectStore.create(n,f,ww,hh)
-                val d=ProjectDocumentStore.load(context,p.id) ?: AnimationDocument(n,ww,hh,f,1)
-                d.name=n; d.width=ww; d.height=hh; d.fps=f; d.duration=1; d.currentFrame=0; d.normalize()
+                val marginX=mw.text.toString().toIntOrNull()?.coerceIn(0,8192) ?: 0
+                val marginY=mh.text.toString().toIntOrNull()?.coerceIn(0,8192) ?: 0
+                val canvasW=(ww+marginX*2).coerceIn(1,16384)
+                val canvasH=(hh+marginY*2).coerceIn(1,16384)
+                val p=ProjectStore.create(n,f,ww,hh,maxOf(marginX,marginY))
+                p.canvasWidth=canvasW; p.canvasHeight=canvasH; ProjectStore.update(p)
+                val d=ProjectDocumentStore.load(context,p.id) ?: AnimationDocument(n,canvasW,canvasH,f,1)
+                d.name=n; d.width=canvasW; d.height=canvasH; d.fps=f; d.duration=1; d.currentFrame=0; d.normalize()
                 ProjectDocumentStore.save(context,p.id,d)
                 ProjectStore.touch(p)
                 onOpen(d,p)
