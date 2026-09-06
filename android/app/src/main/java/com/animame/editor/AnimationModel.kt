@@ -3,13 +3,7 @@ package com.animame.editor
 import android.graphics.PointF
 import java.util.UUID
 
-/** Persistent-independent animation document model. Rendering stays separate from the UI. */
-data class StrokeSample(
-    val x: Float,
-    val y: Float,
-    val pressure: Float = 1f,
-    val timeMs: Long = 0L
-)
+data class StrokeSample(val x: Float, val y: Float, val pressure: Float = 1f, val timeMs: Long = 0L)
 
 data class StrokeData(
     val id: String = UUID.randomUUID().toString(),
@@ -20,11 +14,7 @@ data class StrokeData(
     val samples: MutableList<StrokeSample> = mutableListOf()
 )
 
-data class DrawingFrame(
-    val id: String = UUID.randomUUID().toString(),
-    val strokes: MutableList<StrokeData> = mutableListOf(),
-    var exposure: Int = 1
-)
+data class DrawingFrame(val id: String = UUID.randomUUID().toString(), val strokes: MutableList<StrokeData> = mutableListOf(), var exposure: Int = 1)
 
 data class AnimationLayer(
     val id: String = UUID.randomUUID().toString(),
@@ -36,42 +26,17 @@ data class AnimationLayer(
     val frames: MutableMap<Int, DrawingFrame> = linkedMapOf()
 ) {
     fun frameAt(frame: Int): DrawingFrame? = frames[frame]
-
     fun ensureFrame(frame: Int): DrawingFrame = frames.getOrPut(frame) { DrawingFrame() }
-
     fun previousFrames(frame: Int, count: Int): List<Pair<Int, DrawingFrame>> =
-        frames.filterKeys { it < frame }.toSortedMap(reverseOrder()).entries.take(count).map { it.key to it.value }
-
+        frames.keys.filter { it < frame }.sortedDescending().take(count).mapNotNull { f -> frames[f]?.let { f to it } }
     fun nextFrames(frame: Int, count: Int): List<Pair<Int, DrawingFrame>> =
-        frames.filterKeys { it > frame }.toSortedMap().entries.take(count).map { it.key to it.value }
+        frames.keys.filter { it > frame }.sorted().take(count).mapNotNull { f -> frames[f]?.let { f to it } }
 }
 
-data class OnionSkinSettings(
-    var enabled: Boolean = true,
-    var previousCount: Int = 2,
-    var nextCount: Int = 2,
-    var opacity: Int = 50,
-    var tintPrevious: Boolean = true,
-    var tintNext: Boolean = true
-)
-
-data class AnimationCamera(
-    var x: Float = 0f,
-    var y: Float = 0f,
-    var scale: Float = 1f,
-    var rotation: Float = 0f
-)
-
-data class CameraKeyframe(
-    val frame: Int,
-    val camera: AnimationCamera
-)
-
-data class TimelineSelection(
-    var layerId: String? = null,
-    var startFrame: Int = 0,
-    var endFrame: Int = 0
-)
+data class OnionSkinSettings(var enabled: Boolean = true, var previousCount: Int = 2, var nextCount: Int = 2, var opacity: Int = 50, var tintPrevious: Boolean = true, var tintNext: Boolean = true)
+data class AnimationCamera(var x: Float = 0f, var y: Float = 0f, var scale: Float = 1f, var rotation: Float = 0f)
+data class CameraKeyframe(val frame: Int, val camera: AnimationCamera)
+data class TimelineSelection(var layerId: String? = null, var startFrame: Int = 0, var endFrame: Int = 0)
 
 data class AnimationDocument(
     var name: String = "Untitled",
@@ -87,81 +52,44 @@ data class AnimationDocument(
     val onion: OnionSkinSettings = OnionSkinSettings(),
     val camera: AnimationCamera = AnimationCamera()
 ) {
-    init {
-        playbackEnd = duration.coerceAtLeast(1) - 1
-        if (layers.isEmpty()) layers += AnimationLayer(name = "Layer 1")
-    }
-
-    val activeLayer: AnimationLayer
-        get() = layers.firstOrNull() ?: AnimationLayer(name = "Layer 1").also { layers += it }
-
+    init { playbackEnd = duration.coerceAtLeast(1) - 1; if (layers.isEmpty()) layers += AnimationLayer(name = "Layer 1") }
+    val activeLayer: AnimationLayer get() = layers.firstOrNull() ?: AnimationLayer(name = "Layer 1").also { layers += it }
     fun normalize() {
-        fps = fps.coerceIn(1, 240)
-        width = width.coerceIn(1, 16384)
-        height = height.coerceIn(1, 16384)
-        duration = duration.coerceAtLeast(1)
-        currentFrame = currentFrame.coerceIn(0, duration - 1)
-        playbackStart = playbackStart.coerceIn(0, duration - 1)
-        playbackEnd = playbackEnd.coerceIn(playbackStart, duration - 1)
-        onion.previousCount = onion.previousCount.coerceIn(0, 12)
-        onion.nextCount = onion.nextCount.coerceIn(0, 12)
-        onion.opacity = onion.opacity.coerceIn(0, 100)
+        fps = fps.coerceIn(1, 240); width = width.coerceIn(1, 16384); height = height.coerceIn(1, 16384); duration = duration.coerceAtLeast(1)
+        currentFrame = currentFrame.coerceIn(0, duration - 1); playbackStart = playbackStart.coerceIn(0, duration - 1); playbackEnd = playbackEnd.coerceIn(playbackStart, duration - 1)
+        onion.previousCount = onion.previousCount.coerceIn(0, 12); onion.nextCount = onion.nextCount.coerceIn(0, 12); onion.opacity = onion.opacity.coerceIn(0, 100)
     }
-
     fun insertFrame(at: Int) {
         val index = at.coerceIn(0, duration)
         layers.forEach { layer ->
-            val shifted = layer.frames.entries.sortedDescending().associate { (f, drawing) ->
-                if (f >= index) f + 1 to drawing else f to drawing
-            }
-            layer.frames.clear()
-            layer.frames.putAll(shifted)
+            val shifted = layer.frames.entries.sortedByDescending { it.key }.associate { (f, drawing) -> if (f >= index) f + 1 to drawing else f to drawing }
+            layer.frames.clear(); layer.frames.putAll(shifted)
         }
-        duration += 1
-        playbackEnd = duration - 1
-        currentFrame = index.coerceAtMost(duration - 1)
+        duration += 1; playbackEnd = duration - 1; currentFrame = index.coerceAtMost(duration - 1)
     }
-
     fun duplicateFrame(frame: Int) {
         layers.forEach { layer ->
             val src = layer.frameAt(frame) ?: return@forEach
             val copy = DrawingFrame(exposure = src.exposure)
-            src.strokes.forEach { s ->
-                copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList())
-            }
+            src.strokes.forEach { s -> copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList()) }
             layer.frames[frame + 1] = copy
         }
-        duration = maxOf(duration, frame + 2)
-        playbackEnd = duration - 1
+        duration = maxOf(duration, frame + 2); playbackEnd = duration - 1
     }
-
     fun deleteFrame(frame: Int) {
         if (duration <= 1) return
         layers.forEach { layer ->
             layer.frames.remove(frame)
-            val shifted = layer.frames.entries.sortedBy { it.key }.map { (f, d) ->
-                if (f > frame) f - 1 to d else f to d
-            }
+            val shifted = layer.frames.entries.sortedBy { it.key }.map { (f, d) -> if (f > frame) f - 1 to d else f to d }
             layer.frames.clear(); layer.frames.putAll(shifted)
         }
-        duration -= 1
-        playbackEnd = duration - 1
-        currentFrame = currentFrame.coerceIn(0, duration - 1)
+        duration -= 1; playbackEnd = duration - 1; currentFrame = currentFrame.coerceIn(0, duration - 1)
     }
-
-    fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer =
-        AnimationLayer(name = name).also { layers.add(0, it) }
-
-    fun deleteLayer(layerId: String) {
-        if (layers.size <= 1) return
-        layers.removeAll { it.id == layerId }
-    }
-
+    fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer = AnimationLayer(name = name).also { layers.add(0, it) }
+    fun deleteLayer(layerId: String) { if (layers.size > 1) layers.removeAll { it.id == layerId } }
     fun moveLayer(layerId: String, delta: Int) {
-        val i = layers.indexOfFirst { it.id == layerId }
-        if (i < 0) return
-        val ni = (i + delta).coerceIn(0, layers.lastIndex)
-        if (i != ni) layers.add(ni, layers.removeAt(i))
+        val i = layers.indexOfFirst { it.id == layerId }; if (i < 0) return
+        val ni = (i + delta).coerceIn(0, layers.lastIndex); if (i != ni) layers.add(ni, layers.removeAt(i))
     }
 }
 
