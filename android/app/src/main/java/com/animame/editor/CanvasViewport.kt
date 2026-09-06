@@ -5,14 +5,9 @@ import android.graphics.PointF
 import android.view.MotionEvent
 import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.round
 
-/**
- * Viewport transform for the drawing workspace.
- *
- * This is deliberately independent from the animation Camera. Camera values
- * affect rendered scene content; viewport values only affect how the editor
- * displays that content to the user.
- */
+/** Display transform for the canvas. It is independent from the animation camera. */
 class CanvasViewport {
     var scale: Float = 1f
         private set
@@ -20,6 +15,7 @@ class CanvasViewport {
         private set
     var translationX: Float = 0f
         private set
+
     var translationY: Float = 0f
         private set
 
@@ -46,6 +42,18 @@ class CanvasViewport {
         rotation = 0f
     }
 
+    fun setScaleForSettings(snap: Boolean) {
+        if (!snap) return
+        val steps = floatArrayOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 8f)
+        scale = steps.minByOrNull { kotlin.math.abs(it - scale) } ?: scale
+    }
+
+    fun setRotationForSettings(snap: Boolean) {
+        if (!snap) return
+        rotation = round(rotation / 15f) * 15f
+        rotation = normalizeDegrees(rotation)
+    }
+
     fun matrix(pivotX: Float, pivotY: Float): Matrix = Matrix().apply {
         postTranslate(translationX, translationY)
         postScale(scale, scale, pivotX, pivotY)
@@ -70,12 +78,12 @@ class CanvasViewport {
         return true
     }
 
-    fun updateGesture(e: MotionEvent): Boolean {
+    fun updateGesture(e: MotionEvent, allowZoom: Boolean = true, allowRotation: Boolean = true): Boolean {
         if (!active || e.pointerCount < 2) return false
         val state = readState(e)
         if (lastDistance > 0f) {
-            scale = (scale * (state.distance / lastDistance)).coerceIn(0.05f, 32f)
-            rotation = normalizeDegrees(rotation + shortestAngle(state.angle - lastAngle))
+            if (allowZoom) scale = (scale * (state.distance / lastDistance)).coerceIn(0.05f, 32f)
+            if (allowRotation) rotation = normalizeDegrees(rotation + shortestAngle(state.angle - lastAngle))
             translationX += state.midX - lastMidX
             translationY += state.midY - lastMidY
         }
@@ -91,18 +99,11 @@ class CanvasViewport {
         lastDistance = 0f
     }
 
-    private data class GestureState(
-        val midX: Float,
-        val midY: Float,
-        val distance: Float,
-        val angle: Float
-    )
+    private data class GestureState(val midX: Float, val midY: Float, val distance: Float, val angle: Float)
 
     private fun readState(e: MotionEvent): GestureState {
-        val x1 = e.getX(0)
-        val y1 = e.getY(0)
-        val x2 = e.getX(1)
-        val y2 = e.getY(1)
+        val x1 = e.getX(0); val y1 = e.getY(0)
+        val x2 = e.getX(1); val y2 = e.getY(1)
         return GestureState(
             (x1 + x2) * 0.5f,
             (y1 + y2) * 0.5f,
