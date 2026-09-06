@@ -8,6 +8,6 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        setContentView(AnimationEditorView(this))
+        setContentView(AnimationEditorViewV2(this))
     }
 }
