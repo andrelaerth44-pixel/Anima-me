@@ -11,6 +11,7 @@ data class StrokeData(
     val color: Int = 0xFF000000.toInt(),
     val size: Float = 12f,
     val opacity: Float = 1f,
+    val brushSettings: BrushSettings = BrushDefaults.forPreset(brushId),
     val samples: MutableList<StrokeSample> = mutableListOf()
 )
 
@@ -71,7 +72,7 @@ data class AnimationDocument(
         layers.forEach { layer ->
             val src = layer.frameAt(frame) ?: return@forEach
             val copy = DrawingFrame(exposure = src.exposure)
-            src.strokes.forEach { s -> copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList()) }
+            src.strokes.forEach { s -> copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList(), brushSettings = s.brushSettings.copy()) }
             layer.frames[frame + 1] = copy
         }
         duration = maxOf(duration, frame + 2); playbackEnd = duration - 1
