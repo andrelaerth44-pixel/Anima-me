@@ -15,7 +15,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
 
     override fun onDraw(canvas:Canvas){
         super.onDraw(canvas)
-        if(smoothEnabled)drawContinuousOverlay(canvas)
+        if(rawStroke.isNotEmpty() && isDrawingTool()) drawRealtimePreview(canvas)
         drawCorrectedLabels(canvas)
     }
 
@@ -31,25 +31,28 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         m.isAccessible=true;m.invoke(this,*args)
     }.getOrNull()
 
-    private fun drawContinuousOverlay(c:Canvas){
-        val d=get("document") as? AnimationDocument ?: return
+    /** Smooth is applied to the raw live input while Stabilizer remains a separate stage. */
+    private fun drawRealtimePreview(c:Canvas){
         val r=invoke("canvasRect") as? RectF ?: return
-        val m=invoke("editorMatrix",RectF::class.java,r) as? Matrix ?: return
-        c.save();c.clipRect(r);c.concat(m)
-        d.layers.asReversed().filter{it.visible}.forEach{layer->layer.frameAt(d.currentFrame)?.strokes?.forEach{drawContinuousStroke(c,it)}}
-        drawContinuousPreview(c);c.restore()
-    }
-
-    private fun drawContinuousPreview(c:Canvas){
-        val list=get("samples") as? List<Stabilizer.Sample> ?: return
-        if(list.isEmpty())return
+        val m=invoke("editorMatrix",r) as? Matrix ?: return
         val brush=get("brushSettings") as? BrushSettings ?: return
         val size=(get("brushSize") as? Float)?:brush.size
         val alpha=(get("opacity") as? Float)?:brush.opacity
         val tool=get("tool")?.toString() ?: ""
         val selected=get("selectedBrush") as? BrushPreset
-        val s=StrokeData(brushId=selected?.id?:"preview",color=Color.BLACK,size=size,opacity=alpha,brushSettings=brush.copy(size=size,opacity=alpha,eraser=tool.endsWith("ERASER")),samples=list.map{StrokeSample(it.point.x,it.point.y,it.pressure,it.timeMs,it.tilt,it.orientation)}.toMutableList())
+        val previewSamples=StrokeProcessingEngine.process(rawStroke,smoothEnabled,0f,true)
+        if(previewSamples.isEmpty())return
+        val s=StrokeData(
+            brushId=selected?.id?:"preview",
+            color=Color.BLACK,
+            size=size,
+            opacity=alpha,
+            brushSettings=brush.copy(size=size,opacity=alpha,eraser=tool.endsWith("ERASER")),
+            samples=previewSamples.map{StrokeSample(it.point.x,it.point.y,it.pressure,it.timeMs,it.tilt,it.orientation)}.toMutableList()
+        )
+        c.save();c.clipRect(r);c.concat(m)
         drawContinuousStroke(c,s)
+        c.restore()
     }
 
     private fun drawContinuousStroke(c:Canvas,s:StrokeData){
@@ -57,12 +60,24 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         val bs=s.brushSettings.copy(size=s.size,opacity=s.opacity).normalized()
         var widthSum=0f;var alphaSum=0f;var dist=0f
         val total=max(.001f,strokeLength(list))
-        list.forEachIndexed{i,p->if(i>0)dist+=hypot(p.x-list[i-1].x,p.y-list[i-1].y);val pr=p.pressure.coerceIn(.05f,1.5f);widthSum+=bs.radiusFor(pr,p.tilt);alphaSum+=bs.opacityFor(pr,p.tilt,dist,total)}
+        list.forEachIndexed{i,p->
+            if(i>0)dist+=hypot(p.x-list[i-1].x,p.y-list[i-1].y)
+            val pr=p.pressure.coerceIn(.05f,1.5f)
+            widthSum+=bs.radiusFor(pr,p.tilt)
+            alphaSum+=bs.opacityFor(pr,p.tilt,dist,total)
+        }
         val n=max(1,list.size).toFloat()
         val aa=bs.antialias&&((get("antiAlias") as? Boolean)?:true)
-        val paint=Paint(if(aa)Paint.ANTI_ALIAS_FLAG else 0).apply{style=Paint.Style.STROKE;strokeCap=Paint.Cap.ROUND;strokeJoin=Paint.Join.ROUND;strokeWidth=max(.5f,widthSum/n);alpha=(alphaSum/n*255f).roundToInt().coerceIn(0,255);color=s.color}
+        val paint=Paint(if(aa)Paint.ANTI_ALIAS_FLAG else 0).apply{
+            style=Paint.Style.STROKE
+            strokeCap=Paint.Cap.ROUND
+            strokeJoin=Paint.Join.ROUND
+            strokeWidth=max(.5f,widthSum/n)
+            alpha=(alphaSum/n*255f).roundToInt().coerceIn(0,255)
+            color=s.color
+        }
         if(bs.eraser)paint.xfermode=PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
-        ContinuousStrokeRenderer.draw(c,list,paint,true)
+        ContinuousStrokeRenderer.draw(c,list,paint,smoothEnabled)
         paint.xfermode=null
     }
 
@@ -80,7 +95,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     override fun onTouchEvent(e:MotionEvent):Boolean{
-        if(e.pointerCount>=2)return false
+        if(e.pointerCount>=2)return super.onTouchEvent(e)
         when(e.actionMasked){
             MotionEvent.ACTION_DOWN->{
                 downX=e.x;downY=e.y
@@ -107,7 +122,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     private fun isDrawingTool():Boolean{val t=get("tool")?.toString() ?: "";return t.endsWith("BRUSH")||t.endsWith("PENCIL")||t.endsWith("ERASER")}
-    private fun docPoint(x:Float,y:Float):PointF{val r=invoke("canvasRect") as? RectF?:return PointF(x,y);val m=invoke("editorMatrix",RectF::class.java,r) as? Matrix?:return PointF(x,y);val inv=Matrix();if(!m.invert(inv))return PointF(x,y);val a=floatArrayOf(x,y);inv.mapPoints(a);return PointF(a[0],a[1])}
+    private fun docPoint(x:Float,y:Float):PointF{val r=invoke("canvasRect") as? RectF?:return PointF(x,y);val m=invoke("editorMatrix",r) as? Matrix?:return PointF(x,y);val inv=Matrix();if(!m.invert(inv))return PointF(x,y);val a=floatArrayOf(x,y);inv.mapPoints(a);return PointF(a[0],a[1])}
     private fun sample(e:MotionEvent,p:PointF)=Stabilizer.Sample(p,e.pressure.coerceIn(.05f,1.5f),e.eventTime,e.tilt,e.orientation)
 
     private fun commitProcessed(){
