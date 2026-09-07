@@ -15,6 +15,7 @@ class MainActivity : Activity() {
     private lateinit var home: ProjectHomeView
     private var inEditor = false
     private var menuOpen = false
+    private var canvasGestures: CanvasGestureRouter? = null
 
     companion object {
         const val PICK_VIDEO = 4101
@@ -32,6 +33,14 @@ class MainActivity : Activity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         ProjectStore.initialize(applicationContext)
         editor = AnimationEditorViewV4(this)
+        canvasGestures = CanvasGestureRouter(editor)
+        editor.setOnTouchListener { _, event ->
+            // Two fingers always belong to viewport navigation. Returning true here
+            // prevents the drawing engine from creating accidental samples while
+            // pinch/rotate/pan is in progress. One-finger events continue normally
+            // through AnimationEditorViewV5's tool/UI routing.
+            if (event.pointerCount >= 2) canvasGestures?.handle(event) == true else false
+        }
         home = ProjectHomeView(this) { document, project -> openEditor(document, project) }
         showHome()
     }
@@ -75,7 +84,6 @@ class MainActivity : Activity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    // Public entry points used by the editor's menu bridge.
     fun pickVideo() {
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "video/*"; addCategory(Intent.CATEGORY_OPENABLE)
@@ -117,7 +125,6 @@ class MainActivity : Activity() {
             }.show()
     }
 
-    // Public entry point used by the editor's export bridge.
     fun createExport(format: AnimationExportEngine.Format) {
         val mime = when (format) {
             AnimationExportEngine.Format.MP4 -> "video/mp4"
