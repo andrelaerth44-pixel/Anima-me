@@ -95,6 +95,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     override fun onTouchEvent(e:MotionEvent):Boolean{
+        // Never swallow multi-touch: V5 owns the two-finger pan/zoom gesture state.
         if(e.pointerCount>=2)return super.onTouchEvent(e)
         when(e.actionMasked){
             MotionEvent.ACTION_DOWN->{
@@ -123,7 +124,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
 
     private fun isDrawingTool():Boolean{val t=get("tool")?.toString() ?: "";return t.endsWith("BRUSH")||t.endsWith("PENCIL")||t.endsWith("ERASER")}
     private fun docPoint(x:Float,y:Float):PointF{val r=invoke("canvasRect") as? RectF?:return PointF(x,y);val m=invoke("editorMatrix",r) as? Matrix?:return PointF(x,y);val inv=Matrix();if(!m.invert(inv))return PointF(x,y);val a=floatArrayOf(x,y);inv.mapPoints(a);return PointF(a[0],a[1])}
-    private fun sample(e:MotionEvent,p:PointF)=Stabilizer.Sample(p,e.pressure.coerceIn(.05f,1.5f),e.eventTime,e.tilt,e.orientation)
+    private fun sample(e:MotionEvent,p:PointF)=Stabilizer.Sample(PointF(p.x,p.y),e.pressure.coerceIn(.05f,1.5f),e.eventTime,e.tilt,e.orientation)
 
     private fun commitProcessed(){
         val d=get("document") as? AnimationDocument?:return
