@@ -46,7 +46,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         val brush=get("brushSettings") as? BrushSettings ?: return
         val size=(get("brushSize") as? Float)?:brush.size
         val alpha=(get("opacity") as? Float)?:brush.opacity
-        val tool=get("tool")?.toString()? : ""
+        val tool=get("tool")?.toString() ?: ""
         val selected=get("selectedBrush") as? BrushPreset
         val s=StrokeData(brushId=selected?.id?:"preview",color=Color.BLACK,size=size,opacity=alpha,brushSettings=brush.copy(size=size,opacity=alpha,eraser=tool.endsWith("ERASER")),samples=list.map{StrokeSample(it.point.x,it.point.y,it.pressure,it.timeMs,it.tilt,it.orientation)}.toMutableList())
         drawContinuousStroke(c,s)
@@ -106,7 +106,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         return super.onTouchEvent(e)
     }
 
-    private fun isDrawingTool():Boolean{val t=get("tool")?.toString()? :"";return t.endsWith("BRUSH")||t.endsWith("PENCIL")||t.endsWith("ERASER")}
+    private fun isDrawingTool():Boolean{val t=get("tool")?.toString() ?: "";return t.endsWith("BRUSH")||t.endsWith("PENCIL")||t.endsWith("ERASER")}
     private fun docPoint(x:Float,y:Float):PointF{val r=invoke("canvasRect") as? RectF?:return PointF(x,y);val m=invoke("editorMatrix",RectF::class.java,r) as? Matrix?:return PointF(x,y);val inv=Matrix();if(!m.invert(inv))return PointF(x,y);val a=floatArrayOf(x,y);inv.mapPoints(a);return PointF(a[0],a[1])}
     private fun sample(e:MotionEvent,p:PointF)=Stabilizer.Sample(p,e.pressure.coerceIn(.05f,1.5f),e.eventTime,e.tilt,e.orientation)
 
