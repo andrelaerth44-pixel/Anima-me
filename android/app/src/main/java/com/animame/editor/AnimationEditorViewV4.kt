@@ -56,29 +56,19 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     private fun drawContinuousStroke(c:Canvas,s:StrokeData){
-        val list=s.samples;if(list.isEmpty())return
-        val bs=s.brushSettings.copy(size=s.size,opacity=s.opacity).normalized()
-        var widthSum=0f;var alphaSum=0f;var dist=0f
-        val total=max(.001f,strokeLength(list))
-        list.forEachIndexed{i,p->
-            if(i>0)dist+=hypot(p.x-list[i-1].x,p.y-list[i-1].y)
-            val pr=p.pressure.coerceIn(.05f,1.5f)
-            widthSum+=bs.radiusFor(pr,p.tilt)
-            alphaSum+=bs.opacityFor(pr,p.tilt,dist,total)
-        }
-        val n=max(1,list.size).toFloat()
-        val aa=bs.antialias&&((get("antiAlias") as? Boolean)?:true)
-        val paint=Paint(if(aa)Paint.ANTI_ALIAS_FLAG else 0).apply{
-            style=Paint.Style.STROKE
-            strokeCap=Paint.Cap.ROUND
-            strokeJoin=Paint.Join.ROUND
-            strokeWidth=max(.5f,widthSum/n)
-            alpha=(alphaSum/n*255f).roundToInt().coerceIn(0,255)
-            color=s.color
-        }
-        if(bs.eraser)paint.xfermode=PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
-        ContinuousStrokeRenderer.draw(c,list,paint,smoothEnabled)
-        paint.xfermode=null
+        if(s.samples.isEmpty())return
+        val brush=get("brushSettings") as? BrushSettings ?: s.brushSettings
+        val aa=(get("antiAlias") as? Boolean)?:true
+        ContinuousStrokeRenderer.drawPressureAware(
+            canvas=c,
+            samples=s.samples,
+            baseSize=s.size,
+            baseOpacity=s.opacity,
+            settings=brush.copy(size=s.size,opacity=s.opacity,eraser=s.brushSettings.eraser),
+            color=s.color,
+            smooth=smoothEnabled,
+            antiAlias=aa
+        )
     }
 
     private fun drawCorrectedLabels(c:Canvas){
@@ -95,7 +85,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     override fun onTouchEvent(e:MotionEvent):Boolean{
-        // Never swallow multi-touch: V5 owns the two-finger pan/zoom gesture state.
         if(e.pointerCount>=2)return super.onTouchEvent(e)
         when(e.actionMasked){
             MotionEvent.ACTION_DOWN->{
