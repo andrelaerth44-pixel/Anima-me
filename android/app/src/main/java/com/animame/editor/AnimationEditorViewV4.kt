@@ -1,6 +1,12 @@
 package com.animame.editor
 
-import android.graphics.PointF
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.view.MotionEvent
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -13,6 +19,112 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     private var adjustKind = ""
     private var smoothEnabled = true
     private val rawStroke = mutableListOf<Stabilizer.Sample>()
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (smoothEnabled) drawContinuousOverlay(canvas)
+        drawCorrectedOptionLabels(canvas)
+    }
+
+    /**
+     * V5 historically rendered every sample pair with drawLine(). That makes
+     * fast strokes look segmented and can create tiny round "beads" at sample
+     * boundaries. Keep V5's document/UI rendering intact, then replace the
+     * visible stroke trajectory with one continuous Path in Smooth mode.
+     *
+     * Smooth is deliberately NOT stabilization: this only changes how the
+     * already processed trajectory is rendered. Anti-aliasing is still taken
+     * from the brush/AA switch independently.
+     */
+    private fun drawContinuousOverlay(canvas: Canvas) {
+        val document = getPrivate("document") as? AnimationDocument ?: return
+        val canvasRect = invokePrivate("canvasRect") as? RectF ?: return
+        val matrix = invokePrivate("editorMatrix", RectF::class.java, canvasRect) as? Matrix ?: return
+        canvas.save()
+        canvas.clipRect(canvasRect)
+        canvas.concat(matrix)
+        document.layers.asReversed().filter { it.visible }.forEach { layer ->
+            layer.frameAt(document.currentFrame)?.strokes?.forEach { stroke ->
+                drawContinuousStroke(canvas, stroke)
+            }
+        }
+        drawContinuousPreview(canvas)
+        canvas.restore()
+    }
+
+    private fun drawContinuousPreview(canvas: Canvas) {
+        val list = getPrivate("samples") as? List<Stabilizer.Sample> ?: return
+        if (list.isEmpty()) return
+        val brush = getPrivate("brushSettings") as? BrushSettings ?: return
+        val size = getPrivate("brushSize") as? Float ?: brush.size
+        val alpha = getPrivate("opacity") as? Float ?: brush.opacity
+        val toolName = getPrivate("tool")?.toString() ?: ""
+        val stroke = StrokeData(
+            brushId = (getPrivate("selectedBrush") as? BrushPreset)?.id ?: "preview",
+            color = Color.BLACK,
+            size = size,
+            opacity = alpha,
+            brushSettings = brush.copy(size = size, opacity = alpha, eraser = toolName.endsWith("ERASER")),
+            samples = list.map {
+                StrokeSample(it.point.x, it.point.y, it.pressure, it.timeMs, it.tilt)
+            }.toMutableList()
+        )
+        drawContinuousStroke(canvas, stroke)
+    }
+
+    private fun drawContinuousStroke(canvas: Canvas, stroke: StrokeData) {
+        val samples = stroke.samples
+        if (samples.isEmpty()) return
+        val bs = stroke.brushSettings.copy(size = stroke.size, opacity = stroke.opacity).normalized()
+        var widthSum = 0f
+        var alphaSum = 0f
+        var weight = 0f
+        var distance = 0f
+        for (i in samples.indices) {
+            val s = samples[i]
+            val prev = samples.getOrNull(i - 1)
+            if (prev != null) distance += kotlin.math.hypot(s.x - prev.x, s.y - prev.y)
+            val pressure = s.pressure.coerceIn(.05f, 1.5f)
+            val w = bs.radiusFor(pressure, s.tilt)
+            val a = bs.opacityFor(pressure, s.tilt, distance, kotlin.math.max(0.001f, strokeLength(samples)))
+            widthSum += w
+            alphaSum += a
+            weight += 1f
+        }
+        val avgWidth = (widthSum / weight.coerceAtLeast(1f)).coerceAtLeast(0.5f)
+        val avgAlpha = (alphaSum / weight.coerceAtLeast(1f)).coerceIn(0f, 1f)
+        val aa = bs.antialias && (getPrivate("antiAlias") as? Boolean ?: true)
+        val paint = Paint(if (aa) Paint.ANTI_ALIAS_FLAG else 0).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = avgWidth
+            alpha = (avgAlpha * 255f).roundToInt().coerceIn(0, 255)
+            color = stroke.color
+        }
+        if (bs.eraser) paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT)
+        ContinuousStrokeRenderer.draw(canvas, samples, paint, true)
+        paint.xfermode = null
+    }
+
+    /** Hide the old ambiguous V5 label and expose the three independent concepts. */
+    private fun drawCorrectedOptionLabels(canvas: Canvas) {
+        val panel = getPrivate("panel")?.toString() ?: return
+        if (!panel.endsWith("OPTIONS")) return
+        val x = width - 286f
+        val ySmooth = 334f
+        val yStabilizer = 356f
+        val yAa = 378f
+        val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = Color.rgb(29, 31, 34) }
+        canvas.drawRect(x - 2f, ySmooth - 13f, width.toFloat(), yAa + 7f, bg)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.LTGRAY; textSize = 10f }
+        canvas.drawText("SMOOTH  ${if (smoothEnabled) "ON" else "OFF"}", x, ySmooth, p)
+        val stabilizer = getPrivate("stabilizer") as? Float ?: 20f
+        val realtime = getPrivate("realTimeStabilizer") as? Boolean ?: true
+        canvas.drawText("STABILIZER  ${stabilizer.roundToInt()}%  ${if (realtime) "REAL TIME" else "AFTER"}", x, yStabilizer, p)
+        val aa = getPrivate("antiAlias") as? Boolean ?: true
+        canvas.drawText("ANTI-ALIAS  ${if (aa) "ON" else "OFF"}", x, yAa, p)
+    }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.pointerCount >= 2) return false
@@ -99,7 +211,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     }
 
     private fun routeUiTouch(x: Float, y: Float, down: Boolean): Boolean {
-        // Tool rail. Eleven visible buttons are laid out from the top of the rail.
         if (x <= 66f && y >= 54f && y < height - 112f) {
             val i = ((y - 57f) / 41f).toInt()
             if (i in 0..9) {
@@ -109,7 +220,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
             }
         }
 
-        // Top panel tabs.
         if (y in 5f..47f && x >= 186f && x < 675f) {
             val i = ((x - 190f) / 78f).toInt()
             if (i in 0..5) {
@@ -119,7 +229,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
             }
         }
 
-        // Brush library rows.
         if (getPrivate("panel")?.toString()?.endsWith("BRUSHES") == true &&
             x >= width - 300f && y >= 96f && y < height - 112f) {
             val chosen = brushAtRow(y)
@@ -133,8 +242,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
             }
         }
 
-        // Options panel: tap/drag controls. These are deliberately independent from
-        // the Stabilizer control so Smooth can be disabled without changing stabilization.
         if (getPrivate("panel")?.toString()?.endsWith("OPTIONS") == true && x >= width - 300f) {
             if (y in 132f..158f) {
                 adjusting = down
@@ -149,7 +256,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
                 return true
             }
             if (y in 316f..344f) {
-                // Smooth is a true on/off mode; it never aliases the stabilizer value.
                 if (down) smoothEnabled = !smoothEnabled
                 invalidate()
                 return true
@@ -170,7 +276,6 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
             }
         }
 
-        // Timeline panel onion opacity: 0..100, matching the document model.
         if (getPrivate("panel")?.toString()?.endsWith("TIMELINE") == true && x >= width - 300f && y in 120f..190f) {
             adjusting = down
             adjustKind = "onion"
@@ -225,5 +330,22 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         val f = AnimationEditorViewV5::class.java.getDeclaredField(name)
         f.isAccessible = true
         f.set(this, value)
+    }
+
+    private fun invokePrivate(name: String, vararg args: Any?): Any? {
+        val methods = AnimationEditorViewV5::class.java.declaredMethods.filter { it.name == name && it.parameterTypes.size == args.size }
+        val method = methods.firstOrNull { m ->
+            m.parameterTypes.indices.all { i ->
+                args[i] == null || m.parameterTypes[i].isAssignableFrom(args[i]!!::class.java)
+            }
+        } ?: return null
+        method.isAccessible = true
+        return method.invoke(this, *args)
+    }
+
+    private fun strokeLength(samples: List<StrokeSample>): Float {
+        var d = 0f
+        for (i in 1 until samples.size) d += kotlin.math.hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y)
+        return d.coerceAtLeast(0.001f)
     }
 }
