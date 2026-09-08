@@ -1,77 +1,18 @@
 package com.animame.editor
 
-import kotlin.math.pow
-
-/** Professional per-brush controls. Values are normalized unless noted. */
+/** Full brush parameter model inspired by documented digital-painting controls. No proprietary ibisPaint files are bundled. */
 data class BrushSettings(
-    var size: Float = 12f,
-    var sizeMin: Float = 1f,
-    var sizeMax: Float = 512f,
-    var opacity: Float = 1f,
-    var opacityMin: Float = 0f,
-    var flow: Float = 1f,
-    var alpha: Float = 1f,
-    var hardness: Float = 1f,
-    var feather: Float = 0f,
-    var spacing: Float = 0.15f,
-    var fade: Float = 0f,
-    var fadeIn: Float = 0f,
-    var fadeOut: Float = 0f,
-    var jitter: Float = 0f,
-    var pressureSize: Float = 0f,
-    var pressureOpacity: Float = 0f,
-    var pressureFlow: Float = 0f,
-    var tiltSize: Float = 0f,
-    var tiltOpacity: Float = 0f,
-    var angle: Float = 0f,
-    var roundness: Float = 1f,
-    var lockAlpha: Boolean = false,
-    var eraser: Boolean = false,
-    var antialias: Boolean = true
-) {
-    fun normalized(): BrushSettings = copy(
-        size = size.coerceIn(sizeMin.coerceAtLeast(0.1f), sizeMax.coerceAtLeast(sizeMin)),
-        sizeMin = sizeMin.coerceAtLeast(0.1f),
-        sizeMax = sizeMax.coerceAtLeast(sizeMin.coerceAtLeast(0.1f)),
-        opacity = opacity.coerceIn(0f, 1f), opacityMin = opacityMin.coerceIn(0f, 1f),
-        flow = flow.coerceIn(0f, 1f), alpha = alpha.coerceIn(0f, 1f),
-        hardness = hardness.coerceIn(0f, 1f), feather = feather.coerceIn(0f, 1f),
-        spacing = spacing.coerceIn(0.01f, 4f), fade = fade.coerceIn(0f, 1f),
-        fadeIn = fadeIn.coerceIn(0f, 1f), fadeOut = fadeOut.coerceIn(0f, 1f),
-        jitter = jitter.coerceIn(0f, 1f), pressureSize = pressureSize.coerceIn(-1f, 1f),
-        pressureOpacity = pressureOpacity.coerceIn(-1f, 1f), pressureFlow = pressureFlow.coerceIn(-1f, 1f),
-        tiltSize = tiltSize.coerceIn(-1f, 1f), tiltOpacity = tiltOpacity.coerceIn(-1f, 1f),
-        roundness = roundness.coerceIn(0.05f, 1f)
-    )
-
-    fun radiusFor(pressure: Float, tilt: Float): Float {
-        val p = pressure.coerceIn(0f, 1f)
-        val t = tilt.coerceIn(0f, 1.5708f) / 1.5708f
-        val factor = (1f + pressureSize.coerceIn(-1f, 1f) * (p - 0.5f) * 2f)
-            .coerceIn(0.05f, 2f) * (1f + tiltSize * t).coerceIn(0.05f, 2f)
-        return (size * factor).coerceIn(sizeMin, sizeMax)
-    }
-
-    fun opacityFor(pressure: Float, tilt: Float, distance: Float, strokeLength: Float): Float {
-        val p = pressure.coerceIn(0f, 1f)
-        val t = (tilt.coerceIn(0f, 1.5708f) / 1.5708f)
-        var value = opacity * alpha * flow
-        value *= (1f + pressureOpacity * (p - 0.5f) * 2f).coerceIn(0f, 2f)
-        value *= (1f + tiltOpacity * t).coerceIn(0f, 2f)
-        if (fade > 0f && strokeLength > 0f) value *= (1f - (distance / strokeLength).coerceIn(0f, 1f) * fade)
-        if (fadeIn > 0f && strokeLength > 0f) value *= (distance / (strokeLength * fadeIn).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-        if (fadeOut > 0f && strokeLength > 0f) value *= ((strokeLength - distance) / (strokeLength * fadeOut).coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-        return value.coerceIn(0f, 1f)
-    }
+    var size:Float=12f,var sizeMin:Float=1f,var sizeMax:Float=512f,var opacity:Float=1f,var opacityMin:Float=0f,var flow:Float=1f,var alpha:Float=1f,var hardness:Float=1f,var feather:Float=0f,var spacing:Float=.15f,
+    var startThickness:Float=1f,var endThickness:Float=1f,var startOpacity:Float=1f,var endOpacity:Float=1f,var forceFadeOut:Boolean=false,var blurShape:Int=0,var blurDegree:Float=0f,var blurStart:Float=0f,var blurMiddle:Float=0f,var blurEnd:Float=0f,var jitterBlur:Float=0f,var fade:Float=0f,var fadeIn:Float=0f,var fadeOut:Float=0f,var fadeStartTimeMs:Float=0f,var fadeEndTimeMs:Float=0f,
+    var brushPattern:String="round",var patternOpacity:Float=1f,var opacitySaturation:Boolean=true,var decreaseOpacity:Boolean=false,var initialAngle:Float=0f,var followingRotation:Boolean=false,var aspect:Float=1f,
+    var jitter:Float=0f,var jitterPosition:Float=0f,var jitterThickness:Float=0f,var jitterOpacity:Float=0f,var jitterSpacing:Float=0f,var jitterAngle:Float=0f,var scatter:Boolean=false,var absoluteParticleSize:Boolean=false,var particleSize:Float=12f,var particleDensity:Float=0f,var particleDeviation:Float=0f,
+    var brushType:String="opaque",var texturePattern:String="none",var textureStrength:Float=0f,var textureScale:Float=1f,var textureRotation:Float=0f,var textureOffset:Float=0f,
+    var speedThickness:Float=0f,var speedOpacity:Float=0f,var speedBlurring:Float=0f,var pressureSize:Float=0f,var pressureOpacity:Float=0f,var pressureFlow:Float=0f,var pressureBlurring:Float=0f,var tiltSize:Float=0f,var tiltOpacity:Float=0f,var angle:Float=0f,var roundness:Float=1f,
+    var blendMode:String="normal",var lockAlpha:Boolean=false,var eraser:Boolean=false,var antialias:Boolean=true,var disablePrediction:Boolean=false,var stabilizerOverride:Float?=null,var stabilizerConstant:Float=0f,var stabilizerFastStrokes:Float=0f,var locked:Boolean=false,var customName:String?=null
+){
+ fun normalized()=copy(size=size.coerceIn(sizeMin.coerceAtLeast(.1f),sizeMax.coerceAtLeast(sizeMin)),sizeMin=sizeMin.coerceAtLeast(.1f),sizeMax=sizeMax.coerceAtLeast(sizeMin.coerceAtLeast(.1f)),opacity=opacity.coerceIn(0f,1f),opacityMin=opacityMin.coerceIn(0f,1f),flow=flow.coerceIn(0f,1f),alpha=alpha.coerceIn(0f,1f),hardness=hardness.coerceIn(0f,1f),feather=feather.coerceIn(0f,1f),spacing=spacing.coerceIn(.01f,4f),startThickness=startThickness.coerceIn(0f,2f),endThickness=endThickness.coerceIn(0f,2f),startOpacity=startOpacity.coerceIn(0f,1f),endOpacity=endOpacity.coerceIn(0f,1f),blurDegree=blurDegree.coerceIn(0f,1f),blurStart=blurStart.coerceIn(0f,1f),blurMiddle=blurMiddle.coerceIn(0f,1f),blurEnd=blurEnd.coerceIn(0f,1f),jitterBlur=jitterBlur.coerceIn(0f,1f),fade=fade.coerceIn(0f,1f),fadeIn=fadeIn.coerceIn(0f,1f),fadeOut=fadeOut.coerceIn(0f,1f),patternOpacity=patternOpacity.coerceIn(0f,1f),aspect=aspect.coerceIn(.05f,4f),jitter=jitter.coerceIn(0f,1f),jitterPosition=jitterPosition.coerceIn(0f,1f),jitterThickness=jitterThickness.coerceIn(0f,1f),jitterOpacity=jitterOpacity.coerceIn(0f,1f),jitterSpacing=jitterSpacing.coerceIn(0f,1f),jitterAngle=jitterAngle.coerceIn(0f,1f),particleDensity=particleDensity.coerceIn(0f,1f),particleDeviation=particleDeviation.coerceIn(0f,1f),textureStrength=textureStrength.coerceIn(0f,1f),textureScale=textureScale.coerceAtLeast(.01f),speedThickness=speedThickness.coerceIn(-1f,1f),speedOpacity=speedOpacity.coerceIn(-1f,1f),speedBlurring=speedBlurring.coerceIn(-1f,1f),pressureSize=pressureSize.coerceIn(-1f,1f),pressureOpacity=pressureOpacity.coerceIn(-1f,1f),pressureFlow=pressureFlow.coerceIn(-1f,1f),pressureBlurring=pressureBlurring.coerceIn(-1f,1f),tiltSize=tiltSize.coerceIn(-1f,1f),tiltOpacity=tiltOpacity.coerceIn(-1f,1f),roundness=roundness.coerceIn(.05f,1f),stabilizerConstant=stabilizerConstant.coerceIn(0f,1f),stabilizerFastStrokes=stabilizerFastStrokes.coerceIn(0f,1f))
+ fun radiusFor(pressure:Float,tilt:Float,speed:Float=0f):Float{val p=pressure.coerceIn(0f,1f);val t=tilt.coerceIn(0f,1.5708f)/1.5708f;val v=speed.coerceIn(0f,1f);val f=(1f+pressureSize*(p-.5f)*2f).coerceIn(.05f,2f)*(1f+tiltSize*t).coerceIn(.05f,2f)*(1f+speedThickness*(v-.5f)*2f).coerceIn(.05f,2f);return(size*f).coerceIn(sizeMin,sizeMax)}
+ fun opacityFor(pressure:Float,tilt:Float,distance:Float,strokeLength:Float,speed:Float=0f):Float{val p=pressure.coerceIn(0f,1f);val t=tilt.coerceIn(0f,1.5708f)/1.5708f;val v=speed.coerceIn(0f,1f);var x=opacity*alpha*flow;x*=(1f+pressureOpacity*(p-.5f)*2f).coerceIn(0f,2f);x*=(1f+tiltOpacity*t).coerceIn(0f,2f);x*=(1f+speedOpacity*(v-.5f)*2f).coerceIn(0f,2f);if(fade>0f&&strokeLength>0f)x*=1f-(distance/strokeLength).coerceIn(0f,1f)*fade;if(fadeIn>0f&&strokeLength>0f)x*=(distance/(strokeLength*fadeIn).coerceAtLeast(.001f)).coerceIn(0f,1f);if(fadeOut>0f&&strokeLength>0f)x*=((strokeLength-distance)/(strokeLength*fadeOut).coerceAtLeast(.001f)).coerceIn(0f,1f);return x.coerceIn(opacityMin,1f)}
 }
 
-object BrushDefaults {
-    fun forPreset(id: String): BrushSettings = when (id) {
-        "eraser", "aotz-eraser" -> BrushSettings(eraser = true, opacity = 1f, alpha = 1f, flow = 1f, hardness = .85f, feather = .08f, pressureSize = .65f, pressureOpacity = .15f)
-        "pencil" -> BrushSettings(size = 6f, opacity = .72f, flow = .85f, hardness = .65f, feather = .2f, spacing = .08f, pressureSize = .65f, pressureOpacity = .25f, jitter = .04f)
-        "ink", "aotz-ink" -> BrushSettings(size = 10f, opacity = 1f, hardness = .95f, feather = .02f, spacing = .07f, pressureSize = .8f, pressureOpacity = .25f)
-        "paint" -> BrushSettings(size = 18f, opacity = .9f, flow = .75f, hardness = .65f, feather = .18f, spacing = .12f, pressureSize = .5f, pressureOpacity = .3f)
-        "water", "aotz-water" -> BrushSettings(size = 24f, opacity = .55f, flow = .45f, hardness = .25f, feather = .5f, spacing = .18f, pressureSize = .35f, pressureOpacity = .35f)
-        else -> BrushSettings()
-    }
-}
+object BrushDefaults{fun forPreset(id:String)=when(id){"eraser","aotz-eraser"->BrushSettings(eraser=true,hardness=.85f,feather=.08f,pressureSize=.65f,pressureOpacity=.15f);"pencil"->BrushSettings(size=6f,opacity=.72f,flow=.85f,hardness=.65f,feather=.2f,spacing=.08f,pressureSize=.65f,pressureOpacity=.25f,jitter=.04f,brushType="graphite");"ink","aotz-ink"->BrushSettings(size=10f,hardness=.95f,feather=.02f,spacing=.07f,pressureSize=.8f,pressureOpacity=.25f,brushType="ink");"paint"->BrushSettings(size=18f,opacity=.9f,flow=.75f,hardness=.65f,feather=.18f,spacing=.12f,pressureSize=.5f,pressureOpacity=.3f,brushType="paint");"water","aotz-water"->BrushSettings(size=24f,opacity=.55f,flow=.45f,hardness=.25f,feather=.5f,spacing=.18f,pressureSize=.35f,pressureOpacity=.35f,brushType="water");"airbrush"->BrushSettings(size=48f,opacity=.35f,flow=.35f,hardness=.05f,feather=.9f,spacing=.08f,brushType="air");"marker"->BrushSettings(size=20f,opacity=.75f,flow=.9f,hardness=.7f,spacing=.22f,aspect=.65f,followingRotation=true,brushType="marker");"watercolor"->BrushSettings(size=30f,opacity=.42f,flow=.35f,hardness=.18f,feather=.7f,spacing=.2f,textureStrength=.35f,brushType="watercolor");"smudge","blend-soft"->BrushSettings(size=26f,opacity=.65f,flow=.7f,hardness=.2f,spacing=.1f,brushType="smudge");"fire"->BrushSettings(size=18f,opacity=.9f,flow=.8f,spacing=.35f,jitter=.5f,jitterPosition=.7f,scatter=true,particleDensity=.65f,brushType="particle");"stars"->BrushSettings(size=12f,spacing=.8f,scatter=true,particleDensity=.9f,particleSize=8f,brushType="stamp");else->BrushSettings()}}
