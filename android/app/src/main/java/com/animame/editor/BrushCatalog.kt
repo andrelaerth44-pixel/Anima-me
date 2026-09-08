@@ -3,10 +3,10 @@ package com.animame.editor
 data class BrushPreset(val id:String,val name:String,val family:String,val engine:Engine=Engine.PROCEDURAL,val assetFolder:String?=null,val defaults:BrushSettings=BrushDefaults.forPreset(id))
 enum class Engine { PROCEDURAL }
 
-/** Original Anima-me brush library. Every preset is routed through the procedural renderer. */
+/** Original Anima-me brush library plus persistent user-imported presets. */
 object BrushCatalog {
  private fun p(id:String,name:String,family:String)=BrushPreset(id,name,family)
- val presets= listOf(
+ private val builtIns= listOf(
   p("basic","Basic Round","Simple"),p("basic-soft","Basic Soft","Simple"),p("basic-hard","Basic Hard","Simple"),p("basic-flat","Basic Flat","Simple"),p("basic-pressure","Pressure Round","Simple"),p("basic-opacity","Opacity Round","Simple"),
   p("pencil","Pencil","Sketch"),p("pencil-soft","Soft Pencil","Sketch"),p("pencil-mechanical","Mechanical Pencil","Sketch"),p("graphite","Graphite","Sketch"),p("sketch-light","Light Sketch","Sketch"),p("charcoal-sketch","Charcoal Sketch","Sketch"),
   p("ink","Ink","Ink"),p("ink-fine","Fine Ink","Ink"),p("ink-gpen","G-Pen","Ink"),p("ink-mapping","Mapping Pen","Ink"),p("ink-brush","Ink Brush","Ink"),p("ink-dry","Dry Ink","Ink"),
@@ -23,5 +23,8 @@ object BrushCatalog {
   p("texture","Texture","Texture"),p("paper","Paper Texture","Texture"),p("canvas","Canvas Texture","Texture"),p("noise","Noise Texture","Texture"),
   p("eraser","Eraser","Utility"),p("eraser-soft","Soft Eraser","Utility"),p("eraser-hard","Hard Eraser","Utility")
  )
- val families=listOf("Simple","Sketch","Ink","Comic","Marker","Pastel","Chalk","Dry Paint","Paint","Watercolor","Blend","Airbrush","Spray","Particles","Nature","Plants","Effects","Texture","Utility")
+ private val imported=mutableListOf<BrushPreset>()
+ val presets:List<BrushPreset> get()=builtIns+imported
+ val families=listOf("Simple","Sketch","Ink","Comic","Marker","Pastel","Chalk","Dry Paint","Paint","Watercolor","Blend","Airbrush","Spray","Particles","Nature","Plants","Effects","Texture","Utility","Imported")
+ fun replaceImported(list:List<BrushPreset>){ imported.clear(); imported.addAll(list) }
 }
