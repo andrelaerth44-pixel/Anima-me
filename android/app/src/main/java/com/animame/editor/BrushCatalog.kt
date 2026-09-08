@@ -64,7 +64,7 @@ object BrushCatalog {
         return BrushPreset("${seed.id}-v$n",v.customName?:"${seed.name} v$n",seed.family,Engine.PROCEDURAL,seed.assetFolder,v)
     }
     // 90+ seeds x 9 deterministic variants = 900+ ready-to-use procedural presets.
-    private val builtIns:List<BrushPreset>=seeds+seeds.flatMap{seed->(0 until variantLabels.size).map{variant(seed,it)}}
+    private val builtIns: List<BrushPreset> = seeds + seeds.flatMap { seed -> (0 until variantLabels.size).map { variant(seed,it) } }
     private val imported=mutableListOf<BrushPreset>()
     val presets:List<BrushPreset> get()=builtIns+imported
     val families=listOf("Simple","Sketch","Ink","Comic","Marker","Pastel","Chalk","Dry Paint","Paint","Watercolor","Blend","Airbrush","Spray","Particles","Nature","Plants","Effects","Texture","Utility","Imported")
