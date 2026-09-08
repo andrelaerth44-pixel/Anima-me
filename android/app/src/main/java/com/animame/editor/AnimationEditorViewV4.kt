@@ -10,19 +10,22 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
     private var adjustKind=""
     private var smoothEnabled=true
     private val rawStroke=mutableListOf<Stabilizer.Sample>()
+    init { CustomBrushStore.initialize(context) }
 
     override fun onDraw(canvas:Canvas){
         super.onDraw(canvas)
         if(rawStroke.isNotEmpty() && isDrawingTool()) drawRealtimePreview(canvas)
         drawCorrectedLabels(canvas)
+        if(get("panel")?.toString()?.endsWith("BRUSHES")==true) drawBrushImportBar(canvas)
     }
 
     private fun get(name:String):Any?=runCatching{val f=AnimationEditorViewV5::class.java.getDeclaredField(name);f.isAccessible=true;f.get(this)}.getOrNull()
     private fun set(name:String,value:Any?){runCatching{val f=AnimationEditorViewV5::class.java.getDeclaredField(name);f.isAccessible=true;f.set(this,value)}}
     private fun invoke(name:String,vararg args:Any?):Any?=runCatching{val ms=AnimationEditorViewV5::class.java.declaredMethods.filter{it.name==name&&it.parameterTypes.size==args.size};val m=ms.firstOrNull{it.parameterTypes.indices.all{i->args[i]==null||it.parameterTypes[i].isAssignableFrom(args[i]!!::class.java)}}?:return null;m.isAccessible=true;m.invoke(this,*args)}.getOrNull()
 
+    private fun drawBrushImportBar(c:Canvas){val x=width-292f;val bg=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.FILL;color=Color.rgb(53,57,63)};c.drawRoundRect(x,184f,width-10f,204f,4f,4f,bg);val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.WHITE;textSize=9f};c.drawText("IMPORTAR QR / IMAGEM",x+10f,198f,p)}
     private fun drawRealtimePreview(c:Canvas){val r=invoke("canvasRect") as? RectF ?: return;val m=invoke("editorMatrix",r) as? Matrix ?: return;val brush=get("brushSettings") as? BrushSettings ?: return;val size=(get("brushSize") as? Float)?:brush.size;val alpha=(get("opacity") as? Float)?:brush.opacity;val tool=get("tool")?.toString() ?: "";val selected=get("selectedBrush") as? BrushPreset;val previewSamples=StrokeProcessingEngine.process(rawStroke,smoothEnabled,0f,true);if(previewSamples.isEmpty())return;val color=(get("selectedColor") as? Int)?:Color.BLACK;val s=StrokeData(brushId=selected?.id?:"preview",color=color,size=size,opacity=alpha,brushSettings=brush.copy(size=size,opacity=alpha,eraser=tool.endsWith("ERASER")),samples=previewSamples.map{StrokeSample(it.point.x,it.point.y,it.pressure,it.timeMs,it.tilt,it.orientation)}.toMutableList());c.save();c.clipRect(r);c.concat(m);drawContinuousStroke(c,s);c.restore()}
-    private fun drawContinuousStroke(c:Canvas,s:StrokeData){if(s.samples.isEmpty())return;val brush=get("brushSettings") as? BrushSettings ?: s.brushSettings;val aa=(get("antiAlias") as? Boolean)?:true;ContinuousStrokeRenderer.drawPressureAware(c,s.samples,s.size,s.opacity,brush.copy(size=s.size,opacity=s.opacity,eraser=s.brushSettings.eraser),s.color,smoothEnabled,aa)}
+    private fun drawContinuousStroke(c:Canvas,s:StrokeData){if(s.samples.isEmpty())return;val brush=get("brushSettings") as? BrushSettings ?: s.brushSettings;val aa=(get("antiAlias") as? Boolean)?:true;if(brush.brushPattern.startsWith("image:")){ImportedBrushRenderer.draw(c,s.samples,brush,s.color,smoothEnabled,aa);return};ContinuousStrokeRenderer.drawPressureAware(c,s.samples,s.size,s.opacity,brush.copy(size=s.size,opacity=s.opacity,eraser=s.brushSettings.eraser),s.color,smoothEnabled,aa)}
     private fun drawCorrectedLabels(c:Canvas){if(get("panel")?.toString()?.endsWith("OPTIONS")!=true)return;val x=width-286f;val bg=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.FILL;color=Color.rgb(29,31,34)};c.drawRect(x-4f,386f,width.toFloat(),470f,bg);val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.LTGRAY;textSize=10f};c.drawText("SMOOTH  ${if(smoothEnabled)"ON" else "OFF"}",x,408f,p);val st=(get("stabilizer") as? Float)?:20f;val rt=(get("realTimeStabilizer") as? Boolean)?:true;c.drawText("STABILIZER  ${st.roundToInt()}%  ${if(rt)"REAL TIME" else "AFTER"}",x,430f,p);val aa=(get("antiAlias") as? Boolean)?:true;c.drawText("ANTI-ALIAS  ${if(aa)"ON" else "OFF"}",x,452f,p)}
 
     override fun onTouchEvent(e:MotionEvent):Boolean{
@@ -47,7 +50,8 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         if(x in 70f..180f&&y>=155f&&y<473f){val i=((y-160f)/53f).toInt();if(i in 0..5){val names=listOf("OPTIONS","BRUSHES","LAYERS","TIMELINE","CAMERA","RULERS");if(get("panel")?.toString()?.endsWith(names[i])==true)set("panel",null)else set("panel",enumVal("Panel",i));invalidate();return true}}
         if(x<62f&&y>=155f){val i=((y-160f)/41f).toInt();if(i in 0 until 11){set("tool",enumVal("Tool",i));set("panel",enumVal("Panel",0));invalidate();return true}}
         val right=width-300f;val p=get("panel")?.toString() ?: ""
-        if(p.endsWith("BRUSHES")&&x>=right&&y>185f){val b=brushAt(y);if(b!=null){set("selectedBrush",b);set("brushSettings",b.defaults.copy());set("brushSize",b.defaults.size);set("opacity",b.defaults.opacity);invalidate();return true}}
+        if(p.endsWith("BRUSHES")&&x>=right&&y in 184f..205f){val activity=context as? android.app.Activity;if(activity!=null)BrushImportBridge.launch(activity){imported->set("selectedBrush",imported.preset);set("brushSettings",imported.preset.defaults.copy());set("brushSize",imported.preset.defaults.size);set("opacity",imported.preset.defaults.opacity);invalidate()};return true}
+        if(p.endsWith("BRUSHES")&&x>=right&&y>205f){val b=brushAt(y);if(b!=null){set("selectedBrush",b);set("brushSettings",b.defaults.copy());set("brushSize",b.defaults.size);set("opacity",b.defaults.opacity);invalidate();return true}}
         if(p.endsWith("OPTIONS")&&x>=right){if(y in 258f..284f){adjusting=down;adjustKind="size";updateAdjustment(x);return true};if(y in 284f..310f){adjusting=down;adjustKind="opacity";updateAdjustment(x);return true};if(y in 390f..414f){if(down)smoothEnabled=!smoothEnabled;invalidate();return true};if(y in 414f..438f){adjusting=down;adjustKind="stabilizer";updateAdjustment(x);return true};if(y in 438f..464f){if(down)set("antiAlias",!((get("antiAlias") as? Boolean)?:true));invalidate();return true};if(y in 190f..225f){invoke("openColorPopup");return true}}
         if(p.endsWith("TIMELINE")&&x>=right&&y in 220f..310f){(get("document") as? AnimationDocument)?.let{it.onion.enabled=!it.onion.enabled};invalidate();return true}
         if(p.endsWith("LAYERS")&&x>=right&&y in 185f..220f){invoke("addLayer");return true};if(p.endsWith("LAYERS")&&x>=right&&y>220f){invoke("selectLayer",y);return true};if(p.endsWith("RULERS")&&x>=right&&y>185f){val i=((y-206f)/24f).toInt();if(i in 0..8)set("ruler",i+1);invalidate();return true};if(p.endsWith("CAMERA")&&x>=right&&y in 285f..340f){invoke("resetCamera");invalidate();return true};return false
