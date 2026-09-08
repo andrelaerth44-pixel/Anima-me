@@ -1,7 +1,25 @@
 # ibisPaint IPBZ research
 
-The official ibisPaint documentation confirms that custom brushes are exported/imported as QR-code images and that original brush patterns can be embedded in brushes. Public reverse-engineering notes identify the decoded payload signature as `IPBZ` followed by binary data, but no public complete binary specification was found.
+The official ibisPaint documentation confirms that custom brushes are exported/imported as QR-code images and that original brush patterns can be embedded in brushes. Public reverse-engineering notes identify the decoded payload signature as `IPBZ` followed by binary data.
 
-Anima-me treats the original IPBZ payload as a lossless opaque container: the exact decoded bytes are persisted by SHA-256 fingerprint and are never discarded when a heuristic/procedural interpretation is generated. A future decoder can consume the same bytes without asking the user to import the QR again.
+## New finding from the user-provided ibisPaint APK/source archive
 
-This is intentionally not described as semantic compatibility until every field is validated against ibisPaint behavior. The app must never silently pretend that unknown bytes have been understood.
+Static inspection of the native `libibispaint.so` revealed exported C++ symbols for the actual brush QR subsystem, including:
+
+- `BrushQrUtil::getBrushParametersFromBrushQrData`
+- `BrushQrUtil::getBrushParametersFromBrushQrImage`
+- `BrushQrUtil::importBrushQrData`
+- `BrushQrUtil::dispatchBrushImport`
+- `BrushQrUtil::BRUSH_QR_MAGIC`
+- `BrushQrImageTool::setExportBrushParameter`
+- `BrushPane::exportBrushQrImage`
+- `BrushPane::importBrushQrImage`
+- `BrushParameterSubChunk`
+- `ChunkInputStream::readSubChunkOrNull<BrushParameterSubChunk,...>`
+- `ChunkOutputStream::writeSubChunks<BrushParameterSubChunk*>`
+
+The binary also exposes a large set of `BrushParameterSubChunk` getters/setters covering thickness, opacity, texture opacity/scale, pressure and speed dynamics, jitter, particles, wetness, dragging, antialiasing, aspect, rotation, brush-pattern MD5, texture-pattern MD5, blurring-pattern MD5, blend/lock flags, and other brush state.
+
+This is strong evidence that IPBZ is a structured brush-parameter/chunk serialization format, with brush resources referenced by hashes. The symbol table gives us a map of the semantic object model and parser entry points without copying proprietary implementation code.
+
+The Anima-me implementation keeps original IPBZ bytes losslessly and is being evolved toward an independently implemented field-by-field decoder. We do not claim semantic 100% until round-trip and behavioral comparisons against real IPBZ samples validate every field and referenced resource.
