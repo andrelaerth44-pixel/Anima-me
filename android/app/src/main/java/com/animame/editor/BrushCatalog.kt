@@ -37,7 +37,8 @@ object BrushCatalog {
     )
     private val variantLabels=listOf("Fine","Soft","Hard","Dense","Light","Textured","Pressure","Dry","Wet")
     private fun variant(seed:BrushPreset,index:Int):BrushPreset {
-        val n=index+1; val base=seed.defaults
+        val n=index+1
+        val base=seed.defaults
         val v=base.copy(
             size=(base.size*(.62f+index*.095f)).coerceIn(base.sizeMin,base.sizeMax),
             opacity=(base.opacity*(.72f+index*.035f).coerceAtMost(1.02f)).coerceIn(0f,1f),
@@ -63,8 +64,11 @@ object BrushCatalog {
         )
         return BrushPreset("${seed.id}-v$n",v.customName?:"${seed.name} v$n",seed.family,Engine.PROCEDURAL,seed.assetFolder,v)
     }
+
     // 90+ seeds x 9 deterministic variants = 900+ ready-to-use procedural presets.
-    private val builtIns: List<BrushPreset> = seeds + seeds.flatMap { seed -> (0 until variantLabels.size).map { variant(seed,it) } }
+    private val builtIns: List<BrushPreset> = seeds + seeds.flatMap { seed ->
+        variantLabels.indices.map { index -> variant(seed, index) }
+    }
     private val imported=mutableListOf<BrushPreset>()
     val presets:List<BrushPreset> get()=builtIns+imported
     val families=listOf("Simple","Sketch","Ink","Comic","Marker","Pastel","Chalk","Dry Paint","Paint","Watercolor","Blend","Airbrush","Spray","Particles","Nature","Plants","Effects","Texture","Utility","Imported")
