@@ -18,9 +18,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (get("panel")?.toString()?.endsWith("BRUSHES") == true) {
-            drawBrushLibrary(canvas)
-        }
+        if (get("panel")?.toString()?.endsWith("BRUSHES") == true) drawBrushLibrary(canvas)
     }
 
     private fun get(name: String): Any? = runCatching {
@@ -45,14 +43,10 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         }
         canvas.drawRect(right, 150f, width.toFloat(), height.toFloat(), background)
 
-        val clip = RectF(right, 204f, width.toFloat(), height.toFloat())
         canvas.save()
-        canvas.clipRect(clip)
+        canvas.clipRect(RectF(right, 204f, width.toFloat(), height.toFloat()))
         var y = 206f - brushScroll
-        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            textSize = 9f
-        }
+        val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; textSize = 9f }
 
         for (family in BrushCatalog.families) {
             if (y > 180f && y < height + 20f) {
@@ -76,11 +70,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         }
         canvas.restore()
 
-        val header = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.WHITE
-            textSize = 9f
-        }
+        val header = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = Color.WHITE; textSize = 9f }
         canvas.drawText("IMPORTAR QR / IMAGEM", right + 10f, 198f, header)
         header.color = Color.GRAY
         header.textSize = 8f
@@ -104,7 +94,7 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
                     if (brushDragging) {
                         val maxScroll = (brushContentHeight() - 260f).coerceAtLeast(0f)
                         brushScroll = (brushScrollStartOffset - (event.y - brushScrollStartY)).coerceIn(0f, maxScroll)
-                        invalidate()
+                        postInvalidate()
                     }
                     return true
                 }
@@ -112,17 +102,17 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
                     if (brushDragging) {
                         val moved = abs(event.y - brushScrollStartY)
                         brushDragging = false
-                        if (moved < 12f) {
-                            brushAt(event.y + brushScroll)?.let { selectBrush(it) }
-                        }
-                        invalidate()
+                        if (moved < 12f) brushAt(event.y + brushScroll)?.let { selectBrush(it) }
+                        postInvalidate()
                     }
                     return true
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     brushDragging = false
+                    postInvalidate()
                     return true
                 }
+                else -> return super.onTouchEvent(event)
             }
         }
         return super.onTouchEvent(event)
@@ -133,15 +123,16 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         set("brushSettings", preset.defaults.copy())
         set("brushSize", preset.defaults.size)
         set("opacity", preset.defaults.opacity)
+        postInvalidate()
     }
 
     private fun brushContentHeight(): Float {
-        var heightValue = 0f
+        var contentHeight = 0f
         for (family in BrushCatalog.families) {
-            heightValue += 22f
-            heightValue += BrushCatalog.presets.count { it.family == family } * 16f + 4f
+            contentHeight += 22f
+            contentHeight += BrushCatalog.presets.count { it.family == family } * 16f + 4f
         }
-        return heightValue
+        return contentHeight
     }
 
     private fun brushAt(inputY: Float): BrushPreset? {
