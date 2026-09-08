@@ -2,6 +2,6 @@
 
 The official ibisPaint documentation confirms that custom brushes are exported/imported as QR-code images and that original brush patterns can be embedded in brushes. Public reverse-engineering notes identify the decoded payload signature as `IPBZ` followed by binary data, but no public complete binary specification was found.
 
-Anima-me therefore treats the original IPBZ payload as a lossless opaque container: the exact decoded bytes are persisted by SHA-256 fingerprint and are never discarded when a heuristic/procedural interpretation is generated. A future decoder can consume the same bytes without asking the user to import the QR again.
+Anima-me treats the original IPBZ payload as a lossless opaque container: the exact decoded bytes are persisted by SHA-256 fingerprint and are never discarded when a heuristic/procedural interpretation is generated. A future decoder can consume the same bytes without asking the user to import the QR again.
 
-Important: this is intentionally not described as semantic compatibility until every field is validated against ibisPaint behavior. The app must never silently pretend that unknown bytes have been understood.
+This is intentionally not described as semantic compatibility until every field is validated against ibisPaint behavior. The app must never silently pretend that unknown bytes have been understood.
