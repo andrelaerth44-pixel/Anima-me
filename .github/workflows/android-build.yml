@@ -30,6 +30,10 @@ jobs:
       - name: Run JVM unit tests
         continue-on-error: true
         run: gradle :app:testDebugUnitTest --stacktrace
+      - name: Fix known V5 Canvas API call
+        run: sed -i 's/c\.drawRect(r);/c.drawRect(r,ui);/' app/src/main/java/com/animame/editor/AnimationEditorViewV5.kt
+      - name: Fix known V5 Kotlin ternary syntax
+        run: sed -i 's/colorPaletteMode?"PALETTE":"HSB"/if(colorPaletteMode)"PALETTE" else "HSB"/' app/src/main/java/com/animame/editor/AnimationEditorViewV5.kt
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
       - name: Upload APK
