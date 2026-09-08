@@ -67,7 +67,8 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
                     val selected = preset.id == (get("selectedBrush") as? BrushPreset)?.id
                     text.color = if (selected) Color.WHITE else Color.LTGRAY
                     text.textSize = 9f
-                    canvas.drawText(if (selected) "• ${preset.name}" else "  ${preset.name}", right + 20f, y, text)
+                    val label = if (selected) "• ${preset.name}" else "  ${preset.name}"
+                    canvas.drawText(label, right + 20f, y, text)
                 }
                 y += 16f
             }
@@ -75,12 +76,15 @@ class AnimationEditorViewV4(context: android.content.Context) : AnimationEditorV
         }
         canvas.restore()
 
-        text.color = Color.WHITE
-        text.textSize = 9f
-        canvas.drawText("IMPORTAR QR / IMAGEM", right + 10f, 198f, text)
-        text.color = Color.GRAY
-        text.textSize = 8f
-        canvas.drawText("deslize para ver todos os pincéis", right + 10f, height - 10f, text)
+        val header = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.WHITE
+            textSize = 9f
+        }
+        canvas.drawText("IMPORTAR QR / IMAGEM", right + 10f, 198f, header)
+        header.color = Color.GRAY
+        header.textSize = 8f
+        canvas.drawText("deslize para ver todos os pincéis", right + 10f, height - 10f, header)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
