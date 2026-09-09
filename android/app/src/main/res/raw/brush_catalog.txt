@@ -1,0 +1,397 @@
+Dip Pen (Soft)
+Dip Pen (Hard)
+Dip Pen (Bleed)
+Felt Tip Pen (Soft)
+Felt Tip Pen (Hard)
+Digital Pen
+Airbrush (Normal)
+Airbrush (Triangle)
+Airbrush (Trapezoid 20%)
+Airbrush (Trapezoid 40%)
+Airbrush (Trapezoid 60%)
+Airbrush (Particle)
+Airbrush (Particle L)
+Pencil (#1)
+Pencil (#2)
+Pencil (Graphite)
+Watercolor (Real)
+Watercolor (Point)
+Watercolor (Bleed)
+Oil (Rough)
+Oil (Hair)
+Oriental (Shan Shui)
+Round Brush (Point)
+Round Brush (Normal)
+Round Brush (Curve)
+Round Brush (Angle)
+Round Brush (Fan)
+Round Brush (Real)
+Round Brush (Rough)
+Round Brush (Particle)
+Flat Brush (Point)
+Flat Brush (Normal)
+Flat Brush (Curve)
+Flat Brush (Angle)
+Flat Brush (Fan)
+Flat Brush (Real)
+Flat Brush (Line)
+Marker
+Five Lines
+Charcoal
+Soft Pastel
+Hard Pastel
+Crayon
+Chalk
+Net1
+Net2
+Net3
+Net4
+Circular Cross Hatching
+Flash
+Wedge
+Pile
+Speed
+Splash
+Circle (Edge)
+Flare
+Light 4
+Light 6
+Light 8
+Heart
+Star
+Star (Round)
+Triangle
+Triangle (Noise)
+Pentagon
+Hexagon
+Blur Circle (In)
+Blur Circle (Out)
+Blur Pentagon (In)
+Blur Pentagon (Out)
+Eighth Note
+Doublet Note
+Snow1
+Snow2
+Petal
+Petal (Outline)
+Cherry Blossom
+Cherry Blossom (Outline)
+Chrysanthemum
+Chrysanthemum (Outline)
+Ume Blossom
+Ume Blossom (Outline)
+Balloon Flower
+Balloon Flower (Outline)
+Morning Glory
+Morning Glory (Outline)
+Peony
+Peony (Outline)
+Rose
+Rose (Outline)
+Leaf
+Leaf (Outline)
+Ginkgo
+Ginkgo (Outline)
+Maple
+Maple (Outline)
+Wood Sorrel
+Wood Sorrel (Outline)
+Clover
+Clover (Outline)
+Pen (Fade)
+Chain 1
+Lace
+Feather
+Swallowtail
+Spider Net
+Waterwheel
+Waterwheel (Outline)
+Gear Wheel1
+Gear Wheel1 (Outline)
+Gear Wheel2
+Gear Wheel2 (Outline)
+Pinwheel
+Pinwheel (Outline)
+Square
+Pentagram1
+Pentagram2
+Pentagram3
+Hexagram1
+Hexagram2
+Hexagram3
+Calligraphy
+Light Diamond
+Light Diamond (Outline)
+Diamond (Real Top)
+Diamond (Real Side)
+Diamond (Icon)
+Queen Crown
+Queen Crown (Outline)
+King Crown
+King Crown (Outline)
+Drop
+Drop (Outline)
+Dragonfly
+Dragonfly (Outline)
+Grass (Fern)
+Grass (Green foxtail)
+Grass (Sedge)
+Grass (Nutsedge)
+Grass (Goosegrass)
+Grass (Kentucky Bluegrass)
+Grass (Luzula)
+Watercolor (Mix)
+Watercolor (Water)
+Watercolor (Opaque)
+Outline
+Light
+Flat Watercolor (Mix)
+Flat Watercolor (Water)
+Flat Watercolor (Opaque)
+One Stroke Dragon
+Cat Footprint
+Cat Footprint (Outline)
+Cat Footprints
+Cat Footprints (Outline)
+Pasta 1
+Pasta 2
+Pasta 3
+Pasta 4
+Beads (Normal)
+Beads (Thickness)
+Hose
+Rainbow
+Sparkler
+Flower Shower
+Leaf Shower
+Fur 1
+Fur 2
+Pencil (Rough)
+Blurring Brush 1
+Blurring Brush 2
+Blurring Brush 3
+Blurring Brush 4
+Blurring Brush 5
+Blurring Marker 1
+Blurring Marker 2
+Love Pen
+Ink Pen
+Texture Pen
+Hair
+Glitter 1
+Glitter 2
+Glitter 3
+Glitter 4
+Glitter 5
+Glitter 6
+Bone
+Moire 1
+Moire 2
+Hatching Mod 1
+Hatching Mod 2
+Pencil Mod (#1)
+Pencil Mod (#2)
+Pencil Mod (#3)
+Mechanical Pencil (#1)
+Mechanical Pencil (#2)
+Mechanical Pencil (#3)
+Colored Pencil
+Watercolor Pencil
+Ripple Marks
+Dot
+Grid Dot
+Edge Dot
+Round Dot
+Soft Mapping Pen (Bleed)
+Hard Mapping Pen (Smooth)
+Soft Turnip Pen (Bleed)
+Hard Turnip Pen (Smooth)
+Soft School Pen (Bleed)
+Hard School Pen (Smooth)
+Soft Dip Pen (Bleed)
+Hard Dip Pen (Smooth)
+Soft Japanese Pen (Bleed)
+Hard Japanese Pen (Smooth)
+Soft Falcon Pen (Bleed)
+Hard Falcon Pen (Smooth)
+Technical Pen
+Ruling Pen
+Drawing Pen
+Ballpoint Pen
+Water-based Ballpoint Pen
+Fountain Pen
+Glass Pen
+Uniform Eraser (Overlay)
+Uniform Eraser (Saturation)
+Soft Behind Pen (Bleed)
+Hard Behind Pen (Smooth)
+Outline (Fade)
+Color Outline (Thick)
+Color Outline (Middle)
+Color Outline (Thin)
+Shadow Text
+Pointillism 1
+Pointillism 2
+Pointillism 3
+Pointillism 4
+Pointillism 5
+Pointillism 6
+Crayon Mod
+Alcohol Marker (Round)
+Alcohol Marker (Flat)
+Soft Pastel Mod
+Hard Pastel Mod
+Oil Pastel
+Pan Pastel
+Charcoal Mod
+Fade Watercolor (Mix)
+Fade Watercolor (Water)
+Fade Watercolor (Opaque)
+Impressionism 1
+Impressionism 2
+Oil (Soft)
+Oil (Hard)
+Knitting
+Knitting (Color Change)
+Knitting (Gradation)
+Glitter Heart
+Sputtering 1
+Sputtering 2
+Gauze
+Hair (Light)
+Hair (Dark)
+Blurring Outline
+Light (Pale)
+With Holes
+With Holes (Outline)
+Vertical Stripes
+Horizontal Stripes
+Dot Pen
+Orthogonal Cross
+Diagonal Cross
+Grid
+Houndstooth
+Blurring Square
+Only Outline (Part)
+Only Outline (Connect)
+Tube Pen
+Diagonal Shadow Pen
+Braid (White)
+Braid (Pale)
+Braid (Light)
+Braid (Vivid)
+Braid (Dark)
+Stitch (Thick)
+Stitch (Middle)
+Stitch (Thin)
+Stitch (Frame)
+Stitch (Line)
+Clouds (Real)
+Clouds (Cotton)
+Clouds (Scale)
+Fluffy Watercolor (Mix)
+Fluffy Watercolor (Water)
+Fluffy Watercolor (Opaque)
+Transparent Watercolor (Mix)
+Transparent Watercolor (Water)
+Transparent Watercolor (Opaque)
+Gouache (Mix)
+Gouache (Water)
+Gouache (Opaque)
+Acrylic (Mix)
+Acrylic (Water)
+Acrylic (Opaque)
+Dashed Line
+Dotted Line (Square)
+Dotted Line (Round)
+Watercolor (Edge)
+Neon 1
+Neon 2
+Glitter Dot
+Cube Pen
+Fastener
+Genius Pen
+Stylish Marker
+Rough Layout Pen (Blurring)
+Frizzily Pen
+Glitter Pen
+Scribble Brush
+Scribble Pen
+Fashionable Pen
+Stylish Pen
+Stylish Brush
+Prism Ring
+Prism Piece
+Prism Flash
+Japanese Calligraphy (Blurring)
+Japanese Calligraphy
+Sequin Pen
+Sequin Pen (Hexagon)
+Sequin Pen (Star)
+Sequin Pen (Heart)
+Hair Gloss 1
+Hair Gloss 2
+Three Strand Braid
+Three Strand Braid (Outline)
+Four Strand Braid
+Four Strand Braid (Outline)
+Grass (Fern, Color)
+Grass (Green foxtail, Color)
+Grass (Sedge, Color)
+Grass (Nutsedge, Color)
+Grass (Goosegrass, Color)
+Grass (Kentucky Bluegrass, Color)
+Grass (Luzula, Color)
+Leaves 1
+Leaves 2
+Leaf (Color)
+Tree 1
+Tree 2
+Trunk 1
+Chain 2 (Color)
+Chain 2 (Outline, Color)
+Chain 3 (Color)
+Chain 3 (Outline, Color)
+Chain 4 (Color)
+Chain 4 (Outline, Color)
+Chain 5 (Color)
+Chain 5 (Outline, Color)
+Chain 6 (Color)
+Chain 6 (Outline, Color)
+Chain 7 (Color)
+Chain 7 (Outline, Color)
+Chain 8 (Color)
+Chain 8 (Outline, Color)
+Hard (Edge)
+Watercolor (Edge 2)
+Watercolor (Edge 3)
+Watercolor (Mix 2)
+Watercolor (Opaque 2)
+Flat Watercolor (Mix 2)
+Flat Watercolor (Opaque 2)
+Fade Watercolor (Opaque 2)
+Fluffy Watercolor (Mix 2)
+Fluffy Watercolor (Opaque 2)
+Transparent Watercolor (Mix 2)
+Transparent Watercolor (Opaque 2)
+Gouache (Mix 2)
+Gouache (Opaque 2)
+Acrylic (Mix 2)
+Acrylic (Opaque 2)
+Fade Watercolor (Mix 2)
+Color Changing 1
+Color Changing 2
+Coarse Pencil
+Coarse Pencil (Light)
+Bleed Watercolor
+Bleed Watercolor (Dark)
+Vector Dip Pen
+Vector Felt Tip Pen
+Expressive Pastel
+Canvas Brush
+Impasto Brush
+Sketch Pencil
+Ink Bleed Pen
+Matte Pastel
+Textured Marker (Square)
+Textured Marker (Rectangle)
