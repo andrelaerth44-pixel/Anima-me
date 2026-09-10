@@ -88,7 +88,7 @@ class MainActivity : Activity() {
         val frameScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             setBackgroundColor(Color.rgb(20, 23, 27))
-            addView(frameStrip, HorizontalScrollView.LayoutParams(-2, 58))
+            addView(frameStrip, FrameLayout.LayoutParams(-2, 58))
         }
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
