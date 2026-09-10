@@ -65,6 +65,7 @@ class MainActivity : Activity() {
         top.addView(button("Pincel", 76) { editor.tool = Tool.BRUSH; editor.invalidate() })
         top.addView(button("Borracha", 88) { editor.tool = Tool.ERASER; editor.invalidate() })
         top.addView(button("Pincéis…", 82) { editor.showBrushPicker() })
+        top.addView(button("Suavizar", 82) { editor.toggleAntialias() })
         top.addView(button("Tamanho", 82) { editor.adjustSize() })
         top.addView(button("Opacidade", 90) { editor.adjustOpacity() })
         top.addView(button("− Zoom", 72) { editor.adjustZoom(-0.1f) })
@@ -137,6 +138,8 @@ class MainActivity : Activity() {
         private var brushId = "canvas_1"
         private var brushName = "Dip Pen (Soft)"
         private var brushCategory = "Simple"
+        /** Suavizar = raster edge antialiasing, not stroke trajectory correction. */
+        private var smoothEdges = true
 
         private var zoom = 1f
         private var panX = 0f
@@ -221,6 +224,7 @@ class MainActivity : Activity() {
 
         private fun drawStamps(c: Canvas, stamps: List<BrushEngine.Stamp>, color: Int, layerOpacity: Float) {
             stamps.forEach { stamp ->
+                stampPaint.isAntiAlias = stamp.antialias
                 stampPaint.color = Color.argb(
                     (stamp.alpha * layerOpacity * 255f).toInt().coerceIn(1, 255),
                     Color.red(color), Color.green(color), Color.blue(color)
@@ -326,8 +330,8 @@ class MainActivity : Activity() {
         private fun renderPreview() {
             val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
             previewStamps = BrushEngine.stamps(
-                BrushEngine.smooth(currentSamples, .18f),
-                base.copy(size = brushSize, opacity = brushOpacity),
+                currentSamples,
+                base.copy(size = brushSize, opacity = brushOpacity, antialias = smoothEdges),
                 document.currentFrame.toLong()
             )
         }
@@ -337,7 +341,7 @@ class MainActivity : Activity() {
             val frame = document.activeLayer.ensureFrame(document.currentFrame)
             val color = if (tool == Tool.ERASER) Color.WHITE else accent
             val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
-            val settings = base.copy(size = brushSize, opacity = brushOpacity)
+            val settings = base.copy(size = brushSize, opacity = brushOpacity, antialias = smoothEdges)
             frame.strokes += StrokeData(
                 brushId = settings.id,
                 color = color,
@@ -346,6 +350,16 @@ class MainActivity : Activity() {
                 settings = settings,
                 samples = currentSamples.map { it.copy() }.toMutableList()
             )
+        }
+
+        fun toggleAntialias() {
+            smoothEdges = !smoothEdges
+            Toast.makeText(
+                this@MainActivity,
+                if (smoothEdges) "Suavizar: ligado (bordas menos pixeladas)" else "Suavizar: desligado (bordas nítidas)",
+                Toast.LENGTH_SHORT
+            ).show()
+            invalidate()
         }
 
         fun showBrushPicker() {
