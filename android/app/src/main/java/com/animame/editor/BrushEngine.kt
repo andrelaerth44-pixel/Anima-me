@@ -4,7 +4,7 @@ import kotlin.math.*
 import kotlin.random.Random
 
 object BrushEngine {
-    /** A single raster stamp. antialias controls edge smoothing independently of stroke stabilization. */
+    /** A single raster stamp. Edge smoothing is independent of stroke stabilization. */
     data class Stamp(
         val x: Float,
         val y: Float,
@@ -12,7 +12,8 @@ object BrushEngine {
         val alpha: Float,
         val angle: Float,
         val colorShift: Float,
-        val antialias: Boolean = true
+        val antialias: Boolean = true,
+        val edgeQuality: EdgeSmoothing.Quality = EdgeSmoothing.Quality.HIGH
     )
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
@@ -92,7 +93,8 @@ object BrushEngine {
                     materialAlpha.coerceIn(0f, 1f),
                     rotation,
                     (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f),
-                    s.antialias
+                    s.antialias,
+                    if (s.antialias) EdgeSmoothing.Quality.MAX else EdgeSmoothing.Quality.FAST
                 )
                 distance = 0f
             }
@@ -117,10 +119,7 @@ object BrushEngine {
         }
     }
 
-    /**
-     * Kept for source compatibility. "Suavizar" is NOT stroke stabilization and
-     * must never call StrokeStabilizer. Edge smoothing is controlled by BrushSettings.antialias.
-     */
+    /** Kept for source compatibility. Suavizar never modifies stroke trajectory. */
     @Deprecated("Suavizar is raster edge antialiasing; it is not stroke stabilization")
     fun smooth(samples: List<StrokeSample>, strength: Float): List<StrokeSample> = samples
 
