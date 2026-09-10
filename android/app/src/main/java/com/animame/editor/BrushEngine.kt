@@ -4,25 +4,43 @@ import kotlin.math.*
 import kotlin.random.Random
 
 object BrushEngine {
-    data class Stamp(val x: Float, val y: Float, val size: Float, val alpha: Float, val angle: Float, val colorShift: Float)
+    /** A single raster stamp. antialias controls edge smoothing independently of stroke stabilization. */
+    data class Stamp(
+        val x: Float,
+        val y: Float,
+        val size: Float,
+        val alpha: Float,
+        val angle: Float,
+        val colorShift: Float,
+        val antialias: Boolean = true
+    )
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
         if (samples.isEmpty()) return emptyList()
         val s = settings.normalized()
         val global = StrokeCorrectionStore.settings()
-        val hasBrushCorrection = s.stabilizerConstant > 0f || s.stabilizerFastStrokes > 0f || s.stabilizerSmoothing > 0f || (!s.disablePrediction && s.brushPrediction > 0f)
+        val hasBrushCorrection = s.stabilizerConstant > 0f || s.stabilizerFastStrokes > 0f ||
+            (!s.disablePrediction && s.brushPrediction > 0f)
         val corrected = if (hasBrushCorrection) {
             StrokeStabilizer.apply(samples, StrokeStabilizer.Settings(
-                constant = s.stabilizerConstant, fastStrokes = s.stabilizerFastStrokes,
-                smoothing = s.stabilizerSmoothing,
+                constant = s.stabilizerConstant,
+                fastStrokes = s.stabilizerFastStrokes,
+                smoothing = 0f,
                 prediction = if (s.disablePrediction) 0f else s.brushPrediction,
-                mode = if (s.stabilizerSmoothing > 0f && s.stabilizerConstant == 0f && s.stabilizerFastStrokes == 0f) StrokeStabilizer.Mode.AFTER else StrokeStabilizer.Mode.REAL_TIME,
-                legacy = s.useLegacyStabilization, forceFade = s.forceFade,
-                fadeStart = s.fadeStartTime, fadeEnd = s.fadeEndTime
+                mode = if (s.stabilizerConstant == 0f && s.stabilizerFastStrokes == 0f) {
+                    StrokeStabilizer.Mode.AFTER
+                } else {
+                    StrokeStabilizer.Mode.REAL_TIME
+                },
+                legacy = s.useLegacyStabilization,
+                forceFade = s.forceFade,
+                fadeStart = s.fadeStartTime,
+                fadeEnd = s.fadeEndTime
             ))
-        } else if (global.constant > 0f || global.fastStrokes > 0f || global.smoothing > 0f || global.prediction > 0f) {
-            StrokeStabilizer.apply(samples, global)
+        } else if (global.constant > 0f || global.fastStrokes > 0f || global.prediction > 0f) {
+            StrokeStabilizer.apply(samples, global.copy(smoothing = 0f))
         } else samples
+
         val rng = Random(seed xor s.id.hashCode().toLong())
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
@@ -67,8 +85,15 @@ object BrushEngine {
             val spacing = max(.5f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
             distance += hypot(dx, dy)
             if (prev == null || distance >= spacing) {
-                out += Stamp(p.x + jx + sx, p.y + jy + sy, size.coerceIn(.25f, 4096f), materialAlpha.coerceIn(0f, 1f), rotation,
-                    (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f))
+                out += Stamp(
+                    p.x + jx + sx,
+                    p.y + jy + sy,
+                    size.coerceIn(.25f, 4096f),
+                    materialAlpha.coerceIn(0f, 1f),
+                    rotation,
+                    (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f),
+                    s.antialias
+                )
                 distance = 0f
             }
             prev = p
@@ -85,9 +110,19 @@ object BrushEngine {
         val safeStart = start.coerceIn(0f, 1f)
         val safeEnd = max(safeStart + .001f, end.coerceIn(0f, 1f))
         val target = if (s.forceFade) min(s.fadeOpacity, .15f) else s.fadeOpacity.coerceIn(0f, 1f)
-        return when { t < safeStart -> 1f; t > safeEnd -> target; else -> lerp(1f, target, (t - safeStart) / (safeEnd - safeStart)) }
+        return when {
+            t < safeStart -> 1f
+            t > safeEnd -> target
+            else -> lerp(1f, target, (t - safeStart) / (safeEnd - safeStart))
+        }
     }
 
-    fun smooth(samples: List<StrokeSample>, strength: Float): List<StrokeSample> = StrokeStabilizer.after(samples, StrokeStabilizer.Settings(smoothing = strength * 100f))
+    /**
+     * Kept for source compatibility. "Suavizar" is NOT stroke stabilization and
+     * must never call StrokeStabilizer. Edge smoothing is controlled by BrushSettings.antialias.
+     */
+    @Deprecated("Suavizar is raster edge antialiasing; it is not stroke stabilization")
+    fun smooth(samples: List<StrokeSample>, strength: Float): List<StrokeSample> = samples
+
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 }
