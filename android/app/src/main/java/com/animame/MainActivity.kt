@@ -36,6 +36,18 @@ class MainActivity : Activity() {
         buildUi()
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 401 && resultCode == RESULT_OK && data != null) {
+            editor.applyBrushSelection(
+                data.getStringExtra("brush_id") ?: "basic",
+                data.getStringExtra("brush_name") ?: "Basic",
+                data.getFloatExtra("brush_size", 12f),
+                data.getFloatExtra("brush_opacity", 1f)
+            )
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (::editor.isInitialized) {
@@ -60,10 +72,10 @@ class MainActivity : Activity() {
             setPadding(8, 6, 8, 6)
             setBackgroundColor(Color.rgb(30, 34, 39))
         }
-        top.addView(button("⚙", 52) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
+        top.addView(button("Definições", 84) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
         top.addView(button("Pincel", 82) { editor.tool = Tool.BRUSH; editor.invalidate() })
         top.addView(button("Borracha", 92) { editor.tool = Tool.ERASER; editor.invalidate() })
-        top.addView(button("Pincéis", 82) { editor.cycleBrush() })
+        top.addView(button("Pincéis", 82) { openBrushPanel() })
         brushLabel = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 11f
@@ -74,11 +86,11 @@ class MainActivity : Activity() {
         top.addView(brushLabel, LinearLayout.LayoutParams(150, 54))
         top.addView(button("Tamanho", 88) { editor.adjustSize() })
         top.addView(button("Opacidade", 94) { editor.adjustOpacity() })
-        top.addView(button("Camada +", 90) { editor.addLayer() })
-        top.addView(button("−", 50) { editor.zoomOut() })
+        top.addView(button("Camada", 76) { editor.addLayer() })
+        top.addView(button("Reduzir", 72) { editor.zoomOut() })
         top.addView(button("100%", 62) { editor.resetView() })
-        top.addView(button("+", 50) { editor.zoomIn() })
-        top.addView(button("▶ Play", 82) { editor.togglePlayback() })
+        top.addView(button("Ampliar", 72) { editor.zoomIn() })
+        top.addView(button("Reproduzir", 92) { editor.togglePlayback() })
         top.addView(button("FPS −", 72) { editor.adjustFps(-1) })
         top.addView(button("FPS +", 72) { editor.adjustFps(1) })
         root.addView(top, FrameLayout.LayoutParams(-1, 66))
@@ -103,11 +115,11 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.rgb(24, 27, 31))
             addView(timelineLabel, LinearLayout.LayoutParams(190, 58))
-            addView(button("◀", 48) { editor.previousFrame() })
-            addView(button("＋", 48) { editor.insertFrame() })
-            addView(button("⧉", 48) { editor.duplicateFrame() })
-            addView(button("−", 48) { editor.deleteFrame() })
-            addView(button("▶", 48) { editor.nextFrame() })
+            addView(button("Anterior", 76) { editor.previousFrame() })
+            addView(button("Inserir", 70) { editor.insertFrame() })
+            addView(button("Duplicar", 78) { editor.duplicateFrame() })
+            addView(button("Apagar", 70) { editor.deleteFrame() })
+            addView(button("Seguinte", 76) { editor.nextFrame() })
             addView(button("Onion", 70) { editor.toggleOnion() })
             addView(button("Limpar", 72) { editor.clearCurrentFrame() })
             addView(frameScroll, LinearLayout.LayoutParams(0, 58, 1f))
@@ -120,6 +132,14 @@ class MainActivity : Activity() {
         editor.frameStrip = frameStrip
         editor.brushLabel = brushLabel
         editor.refreshTimeline()
+    }
+
+    private fun openBrushPanel() {
+        val intent = Intent(this, BrushPanelActivity::class.java)
+        intent.putExtra("brush_id", editor.selectedBrushId())
+        intent.putExtra("brush_size", editor.currentBrushSize())
+        intent.putExtra("brush_opacity", editor.currentBrushOpacity())
+        startActivityForResult(intent, 401)
     }
 
     private fun button(label: String, width: Int, action: () -> Unit) = Button(this).apply {
@@ -144,8 +164,7 @@ class MainActivity : Activity() {
         private var lastPlaybackNanos = 0L
         private var playbackAccumulator = 0L
         private var activeLayerId: String = document.activeLayer.id
-        private var brushIndex = 0
-        private var selectedBrushId = "basic"
+        private var selectedBrush = "basic"
         private var zoom = 1f
         private var panX = 0f
         private var panY = 0f
@@ -197,10 +216,10 @@ class MainActivity : Activity() {
             if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, accent, 1f)
             c.restore()
             c.drawRect(0f, 0f, width.toFloat(), 66f, panel)
-            c.drawText("ANIMA-ME", 78f, 38f, text)
-            c.drawText("Frame ${document.currentFrame + 1}/${document.duration}  •  ${document.fps} FPS  •  ${document.layers.size} camada(s)", 78f, 58f, sub)
-            c.drawText("${document.activeLayer.name}  •  ${if (playing) "PLAY" else "PAUSE"}", width - 230f, 38f, sub)
-            c.drawText("${(zoom * 100).toInt()}%", width - 80f, height - 70f, sub)
+            c.drawText("ANIMA-ME", 20f, 38f, text)
+            c.drawText("Frame ${document.currentFrame + 1}/${document.duration}  |  ${document.fps} FPS  |  ${document.layers.size} camada(s)", 20f, 58f, sub)
+            c.drawText("${document.activeLayer.name}  |  ${if (playing) "REPRODUZINDO" else "PARADO"}", width - 250f, 38f, sub)
+            c.drawText("${(zoom * 100).toInt()}%", width - 70f, height - 70f, sub)
         }
 
         private fun drawDocument(c: Canvas) {
@@ -309,13 +328,9 @@ class MainActivity : Activity() {
             return true
         }
 
-        private fun distance(e: MotionEvent): Float {
-            return hypot(e.getX(1) - e.getX(0), e.getY(1) - e.getY(0))
-        }
+        private fun distance(e: MotionEvent): Float = hypot(e.getX(1) - e.getX(0), e.getY(1) - e.getY(0))
 
-        private fun screenToCanvas(x: Float, y: Float): Pair<Float, Float> {
-            return Pair((x - panX) / zoom, (y - panY) / zoom)
-        }
+        private fun screenToCanvas(x: Float, y: Float): Pair<Float, Float> = Pair((x - panX) / zoom, (y - panY) / zoom)
 
         private fun zoomAround(factor: Float, x: Float, y: Float) {
             val old = zoom
@@ -336,7 +351,7 @@ class MainActivity : Activity() {
         }
 
         private fun renderPreview() {
-            val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushCatalog.settings(selectedBrushId)
+            val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushCatalog.settings(selectedBrush)
             previewStamps = BrushEngine.stamps(
                 BrushEngine.smooth(currentSamples, .18f),
                 base.copy(size = brushSize, opacity = brushOpacity),
@@ -348,7 +363,7 @@ class MainActivity : Activity() {
             if (currentSamples.isEmpty()) return
             val frame = document.activeLayer.ensureFrame(document.currentFrame)
             val color = if (tool == Tool.ERASER) Color.WHITE else accent
-            val settings = (if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushCatalog.settings(selectedBrushId))
+            val settings = (if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushCatalog.settings(selectedBrush))
                 .copy(size = brushSize, opacity = brushOpacity)
             frame.strokes += StrokeData(
                 brushId = settings.id,
@@ -360,15 +375,18 @@ class MainActivity : Activity() {
             )
         }
 
-        fun cycleBrush() {
-            val all = BrushCatalog.all()
-            if (all.isEmpty()) return
-            brushIndex = (brushIndex + 1) % all.size
-            selectedBrushId = all[brushIndex].id
-            brushLabel?.text = all[brushIndex].name
+        fun applyBrushSelection(id: String, name: String, newSize: Float, newOpacity: Float) {
+            selectedBrush = id
+            brushSize = newSize.coerceIn(.25f, 4096f)
+            brushOpacity = newOpacity.coerceIn(0f, 1f)
+            brushLabel?.text = name
             tool = Tool.BRUSH
-            Toast.makeText(this@MainActivity, all[brushIndex].name, Toast.LENGTH_SHORT).show()
+            invalidate()
         }
+
+        fun selectedBrushId(): String = selectedBrush
+        fun currentBrushSize(): Float = brushSize
+        fun currentBrushOpacity(): Float = brushOpacity
 
         fun insertFrame() {
             document.insertFrame(document.currentFrame)
@@ -385,10 +403,7 @@ class MainActivity : Activity() {
         }
 
         fun deleteFrame() {
-            if (document.duration <= 1) {
-                clearCurrentFrame()
-                return
-            }
+            if (document.duration <= 1) { clearCurrentFrame(); return }
             document.deleteFrame(document.currentFrame)
             document.currentFrame = document.currentFrame.coerceIn(0, document.duration - 1)
             invalidate()
@@ -409,11 +424,7 @@ class MainActivity : Activity() {
             refreshTimeline()
         }
 
-        fun toggleOnion() {
-            onionEnabled = !onionEnabled
-            invalidate()
-            refreshTimeline()
-        }
+        fun toggleOnion() { onionEnabled = !onionEnabled; invalidate(); refreshTimeline() }
 
         fun clearCurrentFrame() {
             document.activeLayer.frameAt(document.currentFrame)?.strokes?.clear()
@@ -428,9 +439,7 @@ class MainActivity : Activity() {
             refreshTimeline()
         }
 
-        fun togglePlayback() {
-            if (playing) stopPlayback() else startPlayback()
-        }
+        fun togglePlayback() { if (playing) stopPlayback() else startPlayback() }
 
         fun startPlayback() {
             if (document.duration <= 1) {
@@ -481,7 +490,7 @@ class MainActivity : Activity() {
         }
 
         fun refreshTimeline() {
-            timelineLabel?.text = "Frame ${document.currentFrame + 1}/${document.duration}  •  ${document.activeLayer.name}\n${document.fps} FPS  •  ${if (playing) "Reproduzindo" else "Parado"}"
+            timelineLabel?.text = "Frame ${document.currentFrame + 1}/${document.duration}  |  ${document.activeLayer.name}\n${document.fps} FPS  |  ${if (playing) "Reproduzindo" else "Parado"}"
             frameStrip?.let { strip ->
                 strip.removeAllViews()
                 for (index in 0 until document.duration) {
@@ -509,9 +518,7 @@ class MainActivity : Activity() {
             }
         }
 
-        private fun hasContent(index: Int): Boolean {
-            return document.layers.any { layer -> !layer.frameAt(index)?.strokes.isNullOrEmpty() }
-        }
+        private fun hasContent(index: Int): Boolean = document.layers.any { layer -> !layer.frameAt(index)?.strokes.isNullOrEmpty() }
 
         fun adjustSize() {
             brushSize = when {
