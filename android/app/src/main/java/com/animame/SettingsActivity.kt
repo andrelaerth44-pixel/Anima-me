@@ -24,26 +24,20 @@ class SettingsActivity : Activity() {
             setPadding(40, 36, 40, 36)
             setBackgroundColor(Color.rgb(18, 20, 23))
         }
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Definições do Anima-me"
             textSize = 26f
             setTextColor(Color.WHITE)
-        }
-        root.addView(title)
-        val subtitle = TextView(this).apply {
+        })
+        root.addView(TextView(this).apply {
             text = "Cor da interface"
             textSize = 18f
             setTextColor(Color.LTGRAY)
             setPadding(0, 28, 0, 18)
-        }
-        root.addView(subtitle)
-        val grid = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        })
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         colors.toList().chunked(4).forEach { rowColors ->
-            val row = LinearLayout(this).apply {
-                gravity = Gravity.CENTER
-            }
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
             rowColors.forEach { color ->
                 val button = Button(this).apply {
                     text = "●"
@@ -57,7 +51,6 @@ class SettingsActivity : Activity() {
                     }
                 }
                 row.addView(button, LinearLayout.LayoutParams(0, 76).apply {
-                    width = 0
                     weight = 1f
                     setMargins(6, 6, 6, 6)
                 })
@@ -65,13 +58,12 @@ class SettingsActivity : Activity() {
             grid.addView(row)
         }
         root.addView(grid)
-        val current = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "Cor atual"
             textSize = 16f
             setTextColor(accent)
             setPadding(0, 22, 0, 0)
-        }
-        root.addView(current)
+        })
         setContentView(root)
     }
 }
