@@ -37,7 +37,13 @@ data class BrushSettings(
 }
 
 object BrushDefaults {
-    fun forPreset(id: String): BrushSettings = profile(id, id, "Simple")
+    fun forPreset(id: String): BrushSettings {
+        if (id.startsWith("canvas_")) {
+            val preset = BrushCatalog.all().firstOrNull { it.id == id }
+            if (preset != null) return profile(id, preset.name, preset.category)
+        }
+        return profile(id, id, "Simple")
+    }
 
     fun forCatalog(id: String, name: String, category: String): BrushSettings = profile(id, name, category)
 
