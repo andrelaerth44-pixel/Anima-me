@@ -5,6 +5,7 @@ on:
     branches:
       - "copilot/add-liquify-tool"
       - "feature/full-editor-theme"
+      - "feature/editor-zoom-brush-panel"
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
