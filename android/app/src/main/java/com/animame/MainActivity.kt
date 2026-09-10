@@ -1,6 +1,7 @@
 package com.animame
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
@@ -10,14 +11,17 @@ import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.animame.editor.AnimationDocument
 import com.animame.editor.BrushDefaults
 import com.animame.editor.BrushEngine
+import com.animame.editor.BrushPresetRepository
 import com.animame.editor.DrawingFrame
 import com.animame.editor.StrokeData
 import com.animame.editor.StrokeSample
@@ -57,15 +61,19 @@ class MainActivity : Activity() {
             setPadding(8, 6, 8, 6)
             setBackgroundColor(Color.rgb(30, 34, 39))
         }
-        top.addView(button("⚙", 52) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
-        top.addView(button("Pincel", 82) { editor.tool = Tool.BRUSH; editor.invalidate() })
-        top.addView(button("Borracha", 92) { editor.tool = Tool.ERASER; editor.invalidate() })
-        top.addView(button("Tamanho", 88) { editor.adjustSize() })
-        top.addView(button("Opacidade", 94) { editor.adjustOpacity() })
-        top.addView(button("Camada +", 90) { editor.addLayer() })
-        top.addView(button("▶ Play", 82) { editor.togglePlayback() })
-        top.addView(button("FPS −", 72) { editor.adjustFps(-1) })
-        top.addView(button("FPS +", 72) { editor.adjustFps(1) })
+        top.addView(button("⚙", 50) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
+        top.addView(button("Pincel", 76) { editor.tool = Tool.BRUSH; editor.invalidate() })
+        top.addView(button("Borracha", 88) { editor.tool = Tool.ERASER; editor.invalidate() })
+        top.addView(button("Pincéis…", 82) { editor.showBrushPicker() })
+        top.addView(button("Tamanho", 82) { editor.adjustSize() })
+        top.addView(button("Opacidade", 90) { editor.adjustOpacity() })
+        top.addView(button("− Zoom", 72) { editor.adjustZoom(-0.1f) })
+        top.addView(button("100%", 62) { editor.resetViewport() })
+        top.addView(button("+ Zoom", 72) { editor.adjustZoom(0.1f) })
+        top.addView(button("Camada +", 86) { editor.addLayer() })
+        top.addView(button("▶ Play", 76) { editor.togglePlayback() })
+        top.addView(button("FPS −", 68) { editor.adjustFps(-1) })
+        top.addView(button("FPS +", 68) { editor.adjustFps(1) })
         root.addView(top, FrameLayout.LayoutParams(-1, 66))
 
         timelineLabel = TextView(this).apply {
@@ -73,7 +81,6 @@ class MainActivity : Activity() {
             textSize = 13f
             setPadding(10, 4, 10, 4)
         }
-
         frameStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(4, 3, 4, 3)
@@ -83,7 +90,6 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.rgb(20, 23, 27))
             addView(frameStrip, HorizontalScrollView.LayoutParams(-2, 58))
         }
-
         val controls = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.rgb(24, 27, 31))
@@ -93,8 +99,8 @@ class MainActivity : Activity() {
             addView(button("⧉", 48) { editor.duplicateFrame() })
             addView(button("−", 48) { editor.deleteFrame() })
             addView(button("▶", 48) { editor.nextFrame() })
-            addView(button("Onion", 70) { editor.toggleOnion() })
-            addView(button("Limpar", 72) { editor.clearCurrentFrame() })
+            addView(button("Onion", 68) { editor.toggleOnion() })
+            addView(button("Limpar", 70) { editor.clearCurrentFrame() })
             addView(frameScroll, LinearLayout.LayoutParams(0, 58, 1f))
         }
         val p = FrameLayout.LayoutParams(-1, 58)
@@ -108,7 +114,7 @@ class MainActivity : Activity() {
 
     private fun button(label: String, width: Int, action: () -> Unit) = Button(this).apply {
         text = label
-        textSize = 11f
+        textSize = 10f
         setOnClickListener { action() }
         layoutParams = LinearLayout.LayoutParams(width, 54)
     }
@@ -128,6 +134,19 @@ class MainActivity : Activity() {
         private var lastPlaybackNanos = 0L
         private var playbackAccumulator = 0L
         private var activeLayerId: String = document.activeLayer.id
+        private var brushId = "canvas_1"
+        private var brushName = "Dip Pen (Soft)"
+        private var brushCategory = "Simple"
+
+        private var zoom = 1f
+        private var panX = 0f
+        private var panY = 0f
+        private var pinchStartDistance = 0f
+        private var pinchStartZoom = 1f
+        private var lastTouchX = 0f
+        private var lastTouchY = 0f
+        private var twoFingerGesture = false
+
         var tool = Tool.BRUSH
         var timelineLabel: TextView? = null
         var frameStrip: LinearLayout? = null
@@ -158,13 +177,23 @@ class MainActivity : Activity() {
             val left = width * .07f
             val right = width * .93f
             c.drawRect(0f, 0f, width.toFloat(), top, panel)
+
+            val centerX = (left + right) * .5f
+            val centerY = (top + bottom) * .5f
+            c.save()
+            c.clipRect(left, top + 14f, right, bottom - 14f)
+            c.translate(centerX + panX, centerY + panY)
+            c.scale(zoom, zoom)
+            c.translate(-centerX, -centerY)
             c.drawRect(left, top + 14f, right, bottom - 14f, paper)
             drawOnionSkin(c)
             drawDocument(c)
             if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, accent, 1f)
+            c.restore()
+
             c.drawText("ANIMA-ME", 78f, 38f, text)
             c.drawText("Frame ${document.currentFrame + 1}/${document.duration}  •  ${document.fps} FPS  •  ${document.layers.size} camada(s)", 78f, 58f, sub)
-            c.drawText("${document.activeLayer.name}  •  ${if (playing) "PLAY" else "PAUSE"}", width - 230f, 38f, sub)
+            c.drawText("${brushName}  •  ${if (playing) "PLAY" else "PAUSE"}  •  ${(zoom * 100).toInt()}%", width - 330f, 38f, sub)
         }
 
         private fun drawDocument(c: Canvas) {
@@ -204,6 +233,9 @@ class MainActivity : Activity() {
             if (playing) return true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    twoFingerGesture = false
                     if (event.y < 70f || event.y > height - 64f) return false
                     currentSamples.clear()
                     drawing = true
@@ -212,15 +244,49 @@ class MainActivity : Activity() {
                     invalidate()
                     return true
                 }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount >= 2) {
+                        drawing = false
+                        currentSamples.clear()
+                        previewStamps = emptyList()
+                        twoFingerGesture = true
+                        pinchStartDistance = pointerDistance(event).coerceAtLeast(1f)
+                        pinchStartZoom = zoom
+                        lastTouchX = (event.getX(0) + event.getX(1)) * .5f
+                        lastTouchY = (event.getY(0) + event.getY(1)) * .5f
+                    }
+                    return true
+                }
                 MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount >= 2) {
+                        twoFingerGesture = true
+                        val distance = pointerDistance(event).coerceAtLeast(1f)
+                        zoom = (pinchStartZoom * distance / pinchStartDistance).coerceIn(.25f, 4f)
+                        val midX = (event.getX(0) + event.getX(1)) * .5f
+                        val midY = (event.getY(0) + event.getY(1)) * .5f
+                        panX += midX - lastTouchX
+                        panY += midY - lastTouchY
+                        lastTouchX = midX
+                        lastTouchY = midY
+                        invalidate()
+                        return true
+                    }
+                    if (twoFingerGesture) return true
                     if (!drawing) return true
                     addSample(event)
                     renderPreview()
                     invalidate()
                     return true
                 }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    twoFingerGesture = true
+                    drawing = false
+                    currentSamples.clear()
+                    previewStamps = emptyList()
+                    return true
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (drawing && event.actionMasked == MotionEvent.ACTION_UP) commitStroke()
+                    if (drawing && !twoFingerGesture && event.actionMasked == MotionEvent.ACTION_UP) commitStroke()
                     drawing = false
                     currentSamples.clear()
                     previewStamps = emptyList()
@@ -231,13 +297,34 @@ class MainActivity : Activity() {
             return true
         }
 
+        private fun pointerDistance(event: MotionEvent): Float {
+            if (event.pointerCount < 2) return 0f
+            val dx = event.getX(0) - event.getX(1)
+            val dy = event.getY(0) - event.getY(1)
+            return kotlin.math.sqrt(dx * dx + dy * dy)
+        }
+
         private fun addSample(event: MotionEvent) {
             val pressure = (if (event.pressure > 1f) event.pressure / 2f else event.pressure).coerceIn(.05f, 1f)
-            currentSamples += StrokeSample(event.x, event.y, pressure, event.eventTime)
+            val point = toCanvasPoint(event.x, event.y)
+            currentSamples += StrokeSample(point.first, point.second, pressure, event.eventTime)
+        }
+
+        private fun toCanvasPoint(x: Float, y: Float): Pair<Float, Float> {
+            val left = width * .07f
+            val right = width * .93f
+            val top = 66f
+            val bottom = height - 58f
+            val centerX = (left + right) * .5f
+            val centerY = (top + bottom) * .5f
+            return Pair(
+                (x - centerX - panX) / zoom + centerX,
+                (y - centerY - panY) / zoom + centerY
+            )
         }
 
         private fun renderPreview() {
-            val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushDefaults.forPreset("basic")
+            val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
             previewStamps = BrushEngine.stamps(
                 BrushEngine.smooth(currentSamples, .18f),
                 base.copy(size = brushSize, opacity = brushOpacity),
@@ -249,8 +336,8 @@ class MainActivity : Activity() {
             if (currentSamples.isEmpty()) return
             val frame = document.activeLayer.ensureFrame(document.currentFrame)
             val color = if (tool == Tool.ERASER) Color.WHITE else accent
-            val settings = (if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushDefaults.forPreset("basic"))
-                .copy(size = brushSize, opacity = brushOpacity)
+            val base = if (tool == Tool.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
+            val settings = base.copy(size = brushSize, opacity = brushOpacity)
             frame.strokes += StrokeData(
                 brushId = settings.id,
                 color = color,
@@ -259,6 +346,60 @@ class MainActivity : Activity() {
                 settings = settings,
                 samples = currentSamples.map { it.copy() }.toMutableList()
             )
+        }
+
+        fun showBrushPicker() {
+            val outer = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(18, 8, 18, 4)
+            }
+            val search = EditText(this@MainActivity).apply { hint = "Pesquisar pincel ou categoria" }
+            outer.addView(search)
+            val list = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            val scroll = ScrollView(this@MainActivity).apply { addView(list) }
+            outer.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+
+            lateinit var dialog: AlertDialog
+            fun populate(query: String) {
+                list.removeAllViews()
+                BrushPresetRepository.search(query).take(80).forEach { preset ->
+                    val row = Button(this@MainActivity).apply {
+                        text = "${preset.name}  •  ${preset.category}"
+                        textSize = 12f
+                        setOnClickListener {
+                            brushId = preset.id
+                            brushName = preset.name
+                            brushCategory = preset.category
+                            tool = Tool.BRUSH
+                            Toast.makeText(this@MainActivity, "Pincel: ${preset.name}", Toast.LENGTH_SHORT).show()
+                            invalidate()
+                            dialog.dismiss()
+                        }
+                    }
+                    list.addView(row)
+                }
+            }
+
+            dialog = AlertDialog.Builder(this@MainActivity)
+                .setTitle("Pincéis — 389 presets")
+                .setView(outer)
+                .setNegativeButton("Fechar", null)
+                .create()
+            search.addTextChangedListener(SimpleTextWatcher { populate(search.text.toString()) })
+            populate("")
+            dialog.show()
+        }
+
+        fun adjustZoom(delta: Float) {
+            zoom = (zoom + delta).coerceIn(.25f, 4f)
+            invalidate()
+        }
+
+        fun resetViewport() {
+            zoom = 1f
+            panX = 0f
+            panY = 0f
+            invalidate()
         }
 
         fun insertFrame() {
@@ -431,5 +572,11 @@ class MainActivity : Activity() {
                 (Color.blue(a) * (1f - t) + Color.blue(b) * t).toInt()
             )
         }
+    }
+
+    private class SimpleTextWatcher(private val changed: () -> Unit) : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = changed()
+        override fun afterTextChanged(s: android.text.Editable?) = Unit
     }
 }
