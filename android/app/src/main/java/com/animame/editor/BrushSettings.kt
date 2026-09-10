@@ -28,9 +28,28 @@ data class BrushSettings(
     val waterCorrection: Float = 0f, val doubleShadowSize: Float = 0f, val doubleShadowAngle: Float = 0f,
     val doubleShadowDistance: Float = 0f, val blendMode: String = "NORMAL", val usesCurrentColor: Boolean = true,
     val locked: Boolean = false, val billboard: Boolean = false, val billboardPerspective: Boolean = false,
-    val barrelRoll: Boolean = false, val dependsOnCanvasSize: Boolean = false
+    val barrelRoll: Boolean = false, val dependsOnCanvasSize: Boolean = false,
+    // ibisPaint-style per-brush stroke correction controls.
+    val stabilizerConstant: Float = 0f,
+    val stabilizerFastStrokes: Float = 0f,
+    val stabilizerSmoothing: Float = 0f,
+    val brushPrediction: Float = 0f,
+    val disablePrediction: Boolean = false,
+    val useLegacyStabilization: Boolean = false,
+    val forceFade: Boolean = false,
+    val fadeStartTime: Float = 0f,
+    val fadeEndTime: Float = 1f
 ) {
-    fun normalized() = copy(size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f,1f), spacing = spacing.coerceIn(.005f,4f), aspect = aspect.coerceIn(.05f,20f), minSizeFactor = minSizeFactor.coerceIn(0f,1f))
+    fun normalized() = copy(
+        size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f,1f),
+        spacing = spacing.coerceIn(.005f,4f), aspect = aspect.coerceIn(.05f,20f),
+        minSizeFactor = minSizeFactor.coerceIn(0f,1f),
+        stabilizerConstant = stabilizerConstant.coerceIn(0f,100f),
+        stabilizerFastStrokes = stabilizerFastStrokes.coerceIn(0f,100f),
+        stabilizerSmoothing = stabilizerSmoothing.coerceIn(0f,100f),
+        brushPrediction = brushPrediction.coerceIn(0f,100f),
+        fadeStartTime = fadeStartTime.coerceIn(0f,1f), fadeEndTime = fadeEndTime.coerceIn(0f,1f)
+    )
 }
 
 object BrushDefaults {
