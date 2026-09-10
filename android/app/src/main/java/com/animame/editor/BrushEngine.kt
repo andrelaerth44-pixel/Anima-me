@@ -9,11 +9,27 @@ object BrushEngine {
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
         if (samples.isEmpty()) return emptyList()
         val s = settings.normalized()
+        val corrected = if (s.stabilizerConstant > 0f || s.stabilizerFastStrokes > 0f || s.stabilizerSmoothing > 0f || (!s.disablePrediction && s.brushPrediction > 0f)) {
+            StrokeStabilizer.apply(
+                samples,
+                StrokeStabilizer.Settings(
+                    constant = s.stabilizerConstant,
+                    fastStrokes = s.stabilizerFastStrokes,
+                    smoothing = s.stabilizerSmoothing,
+                    prediction = if (s.disablePrediction) 0f else s.brushPrediction,
+                    mode = if (s.stabilizerSmoothing > 0f && s.stabilizerConstant == 0f && s.stabilizerFastStrokes == 0f) StrokeStabilizer.Mode.AFTER else StrokeStabilizer.Mode.REAL_TIME,
+                    legacy = s.useLegacyStabilization,
+                    forceFade = s.forceFade,
+                    fadeStart = s.fadeStartTime,
+                    fadeEnd = s.fadeEndTime
+                )
+            )
+        } else samples
         val rng = Random(seed xor s.id.hashCode().toLong())
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
         var distance = Float.POSITIVE_INFINITY
-        samples.forEach { p ->
+        corrected.forEach { p ->
             val q = prev
             val dx = if (q == null) 0f else p.x - q.x
             val dy = if (q == null) 0f else p.y - q.y
@@ -25,7 +41,7 @@ object BrushEngine {
             val pressureOpacity = lerp(s.minOpacity, 1f, pressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
-            val fade = strokeFade(p, samples, s)
+            val fade = strokeFade(p, corrected, s)
             val materialSize = when (s.material) {
                 BrushMaterial.PENCIL, BrushMaterial.CHARCOAL, BrushMaterial.CHALK -> 0.92f + rng.nextFloat() * 0.16f
                 BrushMaterial.WATERCOLOR, BrushMaterial.GOUACHE -> 1.0f + rng.nextFloat() * 0.08f
@@ -72,25 +88,21 @@ object BrushEngine {
         if (samples.size <= 1) return 1f
         val index = samples.indexOf(p).coerceAtLeast(0)
         val t = index.toFloat() / (samples.lastIndex.coerceAtLeast(1)).toFloat()
-        val start = s.fadeStart.coerceIn(0f, 1f)
-        val end = max(start + .001f, s.fadeEnd.coerceIn(0f, 1f))
+        val start = if (s.forceFade) s.fadeStartTime else s.fadeStart
+        val end = if (s.forceFade) s.fadeEndTime else s.fadeEnd
+        val safeStart = start.coerceIn(0f, 1f)
+        val safeEnd = max(safeStart + .001f, end.coerceIn(0f, 1f))
         return when {
-            t < start -> 1f
-            t > end -> s.fadeOpacity.coerceIn(0f, 1f)
-            else -> lerp(1f, s.fadeOpacity.coerceIn(0f, 1f), (t - start) / (end - start))
+            t < safeStart -> 1f
+            t > safeEnd -> if (s.forceFade) min(s.fadeOpacity, .15f) else s.fadeOpacity.coerceIn(0f, 1f)
+            else -> lerp(1f, if (s.forceFade) min(s.fadeOpacity, .15f) else s.fadeOpacity.coerceIn(0f, 1f), (t - safeStart) / (safeEnd - safeStart))
         }
     }
 
-    fun smooth(samples: List<StrokeSample>, strength: Float): List<StrokeSample> {
-        val k = strength.coerceIn(0f, 1f)
-        if (samples.size < 3 || k == 0f) return samples
-        return samples.mapIndexed { i, p ->
-            if (i == 0 || i == samples.lastIndex) p else {
-                val a = samples[i - 1]; val b = samples[i + 1]
-                StrokeSample(lerp(p.x, (a.x + b.x) / 2f, k), lerp(p.y, (a.y + b.y) / 2f, k), p.pressure, p.timeMs)
-            }
-        }
-    }
+    fun smooth(samples: List<StrokeSample>, strength: Float): List<StrokeSample> = StrokeStabilizer.after(
+        samples,
+        StrokeStabilizer.Settings(smoothing = strength * 100f)
+    )
 
     private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t
 }
