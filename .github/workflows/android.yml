@@ -2,7 +2,9 @@ name: Android APK
 
 on:
   push:
-    branches: ["copilot/add-liquify-tool"]
+    branches:
+      - "copilot/add-liquify-tool"
+      - "feature/full-editor-theme"
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
