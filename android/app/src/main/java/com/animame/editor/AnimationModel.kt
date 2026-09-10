@@ -53,23 +53,52 @@ data class AnimationDocument(
     val layers: MutableList<AnimationLayer> = mutableListOf(),
     val cameraKeys: MutableList<CameraKeyframe> = mutableListOf(),
     val onion: OnionSkinSettings = OnionSkinSettings(),
-    val camera: AnimationCamera = AnimationCamera()
+    val camera: AnimationCamera = AnimationCamera(),
+    var selectedLayerId: String? = null
 ) {
-    init { playbackEnd = duration.coerceAtLeast(1) - 1; if (layers.isEmpty()) layers += AnimationLayer(name = "Layer 1") }
-    val activeLayer: AnimationLayer get() = layers.firstOrNull() ?: AnimationLayer(name = "Layer 1").also { layers += it }
-    fun normalize() {
-        fps = fps.coerceIn(1, 240); width = width.coerceIn(1, 16384); height = height.coerceIn(1, 16384); duration = duration.coerceAtLeast(1)
-        currentFrame = currentFrame.coerceIn(0, duration - 1); playbackStart = playbackStart.coerceIn(0, duration - 1); playbackEnd = playbackEnd.coerceIn(playbackStart, duration - 1)
-        onion.previousCount = onion.previousCount.coerceIn(0, 12); onion.nextCount = onion.nextCount.coerceIn(0, 12); onion.opacity = onion.opacity.coerceIn(0, 100)
+    init {
+        playbackEnd = duration.coerceAtLeast(1) - 1
+        if (layers.isEmpty()) layers += AnimationLayer(name = "Layer 1")
+        selectedLayerId = selectedLayerId ?: layers.firstOrNull()?.id
     }
+
+    val activeLayer: AnimationLayer
+        get() = layers.firstOrNull { it.id == selectedLayerId }
+            ?: layers.firstOrNull()?.also { selectedLayerId = it.id }
+            ?: AnimationLayer(name = "Layer 1").also { layers += it; selectedLayerId = it.id }
+
+    fun selectLayer(layerId: String): Boolean {
+        if (layers.none { it.id == layerId }) return false
+        selectedLayerId = layerId
+        return true
+    }
+
+    fun normalize() {
+        fps = fps.coerceIn(1, 240)
+        width = width.coerceIn(1, 16384)
+        height = height.coerceIn(1, 16384)
+        duration = duration.coerceAtLeast(1)
+        currentFrame = currentFrame.coerceIn(0, duration - 1)
+        playbackStart = playbackStart.coerceIn(0, duration - 1)
+        playbackEnd = playbackEnd.coerceIn(playbackStart, duration - 1)
+        onion.previousCount = onion.previousCount.coerceIn(0, 12)
+        onion.nextCount = onion.nextCount.coerceIn(0, 12)
+        onion.opacity = onion.opacity.coerceIn(0, 100)
+        if (layers.none { it.id == selectedLayerId }) selectedLayerId = layers.firstOrNull()?.id
+    }
+
     fun insertFrame(at: Int) {
         val index = at.coerceIn(0, duration)
         layers.forEach { layer ->
             val shifted = layer.frames.entries.sortedByDescending { it.key }.associate { (f, drawing) -> if (f >= index) f + 1 to drawing else f to drawing }
-            layer.frames.clear(); layer.frames.putAll(shifted)
+            layer.frames.clear()
+            layer.frames.putAll(shifted)
         }
-        duration += 1; playbackEnd = duration - 1; currentFrame = index.coerceAtMost(duration - 1)
+        duration += 1
+        playbackEnd = duration - 1
+        currentFrame = index.coerceAtMost(duration - 1)
     }
+
     fun duplicateFrame(frame: Int) {
         layers.forEach { layer ->
             val src = layer.frameAt(frame) ?: return@forEach
@@ -77,22 +106,41 @@ data class AnimationDocument(
             src.strokes.forEach { s -> copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList()) }
             layer.frames[frame + 1] = copy
         }
-        duration = maxOf(duration, frame + 2); playbackEnd = duration - 1
+        duration = maxOf(duration, frame + 2)
+        playbackEnd = duration - 1
     }
+
     fun deleteFrame(frame: Int) {
         if (duration <= 1) return
         layers.forEach { layer ->
             layer.frames.remove(frame)
             val shifted = layer.frames.entries.sortedBy { it.key }.map { (f, d) -> if (f > frame) f - 1 to d else f to d }
-            layer.frames.clear(); layer.frames.putAll(shifted)
+            layer.frames.clear()
+            layer.frames.putAll(shifted)
         }
-        duration -= 1; playbackEnd = duration - 1; currentFrame = currentFrame.coerceIn(0, duration - 1)
+        duration -= 1
+        playbackEnd = duration - 1
+        currentFrame = currentFrame.coerceIn(0, duration - 1)
     }
-    fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer = AnimationLayer(name = name).also { layers.add(0, it) }
-    fun deleteLayer(layerId: String) { if (layers.size > 1) layers.removeAll { it.id == layerId } }
+
+    fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer =
+        AnimationLayer(name = name).also {
+            layers.add(0, it)
+            selectedLayerId = it.id
+        }
+
+    fun deleteLayer(layerId: String) {
+        if (layers.size <= 1) return
+        val wasSelected = selectedLayerId == layerId
+        layers.removeAll { it.id == layerId }
+        if (wasSelected) selectedLayerId = layers.firstOrNull()?.id
+    }
+
     fun moveLayer(layerId: String, delta: Int) {
-        val i = layers.indexOfFirst { it.id == layerId }; if (i < 0) return
-        val ni = (i + delta).coerceIn(0, layers.lastIndex); if (i != ni) layers.add(ni, layers.removeAt(i))
+        val i = layers.indexOfFirst { it.id == layerId }
+        if (i < 0) return
+        val ni = (i + delta).coerceIn(0, layers.lastIndex)
+        if (i != ni) layers.add(ni, layers.removeAt(i))
     }
 }
 
