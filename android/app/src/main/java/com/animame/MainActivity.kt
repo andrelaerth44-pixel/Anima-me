@@ -1,6 +1,7 @@
 package com.animame
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
@@ -62,18 +63,19 @@ class MainActivity : Activity() {
             setPadding(8, 6, 8, 6)
             setBackgroundColor(Color.rgb(30, 34, 39))
         }
-        top.addView(button("Definições", 86) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
-        top.addView(button("Pincéis", 78) { openBrushPicker() })
-        top.addView(button("Borracha", 88) { editor.tool = Tool.ERASER; editor.invalidate() })
-        top.addView(button("Tamanho", 78) { editor.adjustSize() })
-        top.addView(button("Opacidade", 86) { editor.adjustOpacity() })
-        top.addView(button("Camada +", 82) { editor.addLayer() })
-        top.addView(button("Zoom +", 72) { editor.zoom(1.2f) })
-        top.addView(button("Zoom -", 72) { editor.zoom(.8333333f) })
-        top.addView(button("Ajustar", 72) { editor.resetViewport() })
-        top.addView(button("Reproduzir", 92) { editor.togglePlayback() })
-        top.addView(button("FPS -", 64) { editor.adjustFps(-1) })
-        top.addView(button("FPS +", 64) { editor.adjustFps(1) })
+        top.addView(button("Definições", 82) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
+        top.addView(button("Pincéis", 72) { openBrushPicker() })
+        top.addView(button("Camadas", 76) { editor.showLayersDialog() })
+        top.addView(button("Borracha", 82) { editor.tool = Tool.ERASER; editor.invalidate() })
+        top.addView(button("Tamanho", 74) { editor.adjustSize() })
+        top.addView(button("Opacidade", 82) { editor.adjustOpacity() })
+        top.addView(button("Camada +", 78) { editor.addLayer() })
+        top.addView(button("Zoom +", 68) { editor.zoom(1.2f) })
+        top.addView(button("Zoom -", 68) { editor.zoom(.8333333f) })
+        top.addView(button("Ajustar", 68) { editor.resetViewport() })
+        top.addView(button("Reproduzir", 88) { editor.togglePlayback() })
+        top.addView(button("FPS -", 60) { editor.adjustFps(-1) })
+        top.addView(button("FPS +", 60) { editor.adjustFps(1) })
         root.addView(top, FrameLayout.LayoutParams(-1, 66))
 
         timelineLabel = TextView(this).apply {
@@ -94,13 +96,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.rgb(24, 27, 31))
             addView(timelineLabel, LinearLayout.LayoutParams(190, 58))
-            addView(button("Anterior", 72) { editor.previousFrame() })
-            addView(button("Inserir", 68) { editor.insertFrame() })
-            addView(button("Duplicar", 72) { editor.duplicateFrame() })
-            addView(button("Eliminar", 72) { editor.deleteFrame() })
-            addView(button("Seguinte", 72) { editor.nextFrame() })
-            addView(button("Onion", 64) { editor.toggleOnion() })
-            addView(button("Limpar", 68) { editor.clearCurrentFrame() })
+            addView(button("Anterior", 70) { editor.previousFrame() })
+            addView(button("Inserir", 66) { editor.insertFrame() })
+            addView(button("Duplicar", 70) { editor.duplicateFrame() })
+            addView(button("Eliminar", 70) { editor.deleteFrame() })
+            addView(button("Seguinte", 70) { editor.nextFrame() })
+            addView(button("Onion", 62) { editor.toggleOnion() })
+            addView(button("Limpar", 66) { editor.clearCurrentFrame() })
             addView(frameScroll, LinearLayout.LayoutParams(0, 58, 1f))
         }
         val p = FrameLayout.LayoutParams(-1, 58)
@@ -294,6 +296,24 @@ class MainActivity : Activity() {
             val color = if (tool == Tool.ERASER) Color.WHITE else accent
             frame.strokes += StrokeData(brushId = settings.id, color = color, size = BrushToolState.size, opacity = BrushToolState.opacity, settings = settings, samples = currentSamples.map { it.copy() }.toMutableList())
             BrushToolState.save(this@MainActivity)
+        }
+
+        fun showLayersDialog() {
+            val labels = document.layers.mapIndexed { index, layer ->
+                val marker = if (layer.id == activeLayerId) "[ativo] " else ""
+                "${marker}${index + 1}. ${layer.name}"
+            }.toTypedArray()
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Camadas")
+                .setItems(labels) { dialog, which ->
+                    activeLayerId = document.layers[which].id
+                    invalidate()
+                    refreshTimeline()
+                    dialog.dismiss()
+                }
+                .setPositiveButton("Nova camada") { _, _ -> addLayer() }
+                .setNegativeButton("Fechar", null)
+                .show()
         }
 
         fun zoom(factor: Float) { viewport.zoomAt(factor, width * .5f, height * .5f); invalidate() }
