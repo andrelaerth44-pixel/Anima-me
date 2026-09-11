@@ -7,26 +7,38 @@ import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.Result
 import com.google.zxing.common.HybridBinarizer
 import java.nio.charset.StandardCharsets
 import java.util.EnumMap
 import kotlin.math.max
 
-/** Brush-panel QR pipeline. Native Anima-me format is preferred; IPBZ remains legacy-only. */
+/** Brush-panel QR pipeline. Native Anima-me format is preferred; IPBZ remains legacy-compatible. */
 object BrushQrImporter {
-    data class Result(val settings: BrushSettings, val codec: BrushQrCodec.ImportResult?, val rawPayload: ByteArray, val ipbz: Boolean)
+    data class Result(
+        val settings: BrushSettings,
+        val codec: BrushQrCodec.ImportResult?,
+        val rawPayload: ByteArray,
+        val ipbz: Boolean
+    )
+
+    private data class DecodedQr(val text: String, val rawBytes: ByteArray?)
 
     fun importBitmap(bitmap: Bitmap, suggestedName: String = "Imported Brush"): Result? {
         decodeCandidates(bitmap).forEach { qr ->
-            val raw = qr.text.toByteArray(StandardCharsets.UTF_8)
+            // Native Anima-me QR is textual. For IPBZ, prefer ZXing's rawBytes so
+            // binary payloads are not corrupted by a UTF-8 round-trip.
+            val raw = qr.rawBytes?.takeIf { it.isNotEmpty() } ?: qr.text.toByteArray(StandardCharsets.UTF_8)
             val parsed = importBytes(raw, qr.text, suggestedName)
             if (parsed != null) return parsed
         }
         return null
     }
 
-    fun importBytes(data: ByteArray, text: String = String(data, StandardCharsets.UTF_8), suggestedName: String = "Imported Brush"): Result? {
+    fun importBytes(
+        data: ByteArray,
+        text: String = String(data, StandardCharsets.UTF_8),
+        suggestedName: String = "Imported Brush"
+    ): Result? {
         if (data.isEmpty()) return null
 
         // First-class native Anima-me QR: full BrushSettings + checksum.
@@ -35,21 +47,33 @@ object BrushQrImporter {
             return Result(native.settings, null, data.copyOf(), false)
         }
 
-        // Legacy compatibility path for IPBZ. We never convert unknown proprietary fields;
-        // this path only preserves the payload and creates a conservative placeholder brush.
+        // Legacy compatibility path for IPBZ. We preserve the exact QR payload;
+        // conversion of proprietary BrushParameterSubChunk fields is handled separately.
         val codec = runCatching { BrushQrCodec.decode(data) }.getOrNull() ?: return null
         val ipbz = codec.magic.equals("IPBZ", true) || text.startsWith("IPBZ")
         if (!ipbz) return null
         val id = "imported_ipbz_${codec.version ?: 0}_${data.size}"
-        val settings = BrushDefaults.forPreset(id).copy(id = id, name = suggestedName, category = "Imported / IPBZ")
+        val settings = BrushDefaults.forPreset(id).copy(
+            id = id,
+            name = suggestedName,
+            category = "Imported / IPBZ"
+        )
         return Result(settings, codec, data.copyOf(), true)
     }
 
-    private fun decodeCandidates(original: Bitmap): Sequence<Result> = sequence {
+    private fun decodeCandidates(original: Bitmap): Sequence<DecodedQr> = sequence {
         val attempts = mutableListOf<Bitmap>()
         attempts += original
         listOf(90f, 180f, 270f).forEach { degrees ->
-            attempts += Bitmap.createBitmap(original, 0, 0, original.width, original.height, Matrix().apply { postRotate(degrees) }, true)
+            attempts += Bitmap.createBitmap(
+                original,
+                0,
+                0,
+                original.width,
+                original.height,
+                Matrix().apply { postRotate(degrees) },
+                true
+            )
         }
         val w = original.width
         val h = original.height
@@ -76,8 +100,8 @@ object BrushQrImporter {
                 candidate.getPixels(pixels, 0, candidate.width, 0, 0, candidate.width, candidate.height)
                 val source = RGBLuminanceSource(candidate.width, candidate.height, pixels)
                 val result = reader.decode(BinaryBitmap(HybridBinarizer(source)), hints)
-                val key = result.text
-                if (seen.add(key)) yield(result)
+                val key = result.text + "\u0000" + (result.rawBytes?.contentHashCode() ?: 0)
+                if (seen.add(key)) yield(DecodedQr(result.text, result.rawBytes?.copyOf()))
             } catch (_: Throwable) {
             } finally {
                 if (candidate !== original) candidate.recycle()
