@@ -26,6 +26,7 @@ data class AnimationLayer(
     var locked: Boolean = false,
     var opacity: Float = 1f,
     var blendMode: String = "NORMAL",
+    var isBackground: Boolean = false,
     val frames: MutableMap<Int, DrawingFrame> = linkedMapOf()
 ) {
     fun frameAt(frame: Int): DrawingFrame? = frames[frame]
@@ -50,6 +51,8 @@ data class AnimationDocument(
     var currentFrame: Int = 0,
     var playbackStart: Int = 0,
     var playbackEnd: Int = 0,
+    var backgroundColor: Int = 0xFFFFFFFF.toInt(),
+    var transparentBackground: Boolean = false,
     val layers: MutableList<AnimationLayer> = mutableListOf(),
     val cameraKeys: MutableList<CameraKeyframe> = mutableListOf(),
     val onion: OnionSkinSettings = OnionSkinSettings(),
@@ -58,17 +61,22 @@ data class AnimationDocument(
 ) {
     init {
         playbackEnd = duration.coerceAtLeast(1) - 1
-        if (layers.isEmpty()) layers += AnimationLayer(name = "Layer 1")
-        selectedLayerId = selectedLayerId ?: layers.firstOrNull()?.id
+        if (layers.isEmpty()) {
+            val background = AnimationLayer(name = "Background", locked = true, isBackground = true)
+            val layer = AnimationLayer(name = "Layer 1")
+            layers += layer
+            layers += background
+        }
+        selectedLayerId = selectedLayerId ?: layers.firstOrNull { !it.isBackground }?.id ?: layers.firstOrNull()?.id
     }
 
     val activeLayer: AnimationLayer
-        get() = layers.firstOrNull { it.id == selectedLayerId }
-            ?: layers.firstOrNull()?.also { selectedLayerId = it.id }
-            ?: AnimationLayer(name = "Layer 1").also { layers += it; selectedLayerId = it.id }
+        get() = layers.firstOrNull { it.id == selectedLayerId && !it.isBackground }
+            ?: layers.firstOrNull { !it.isBackground }?.also { selectedLayerId = it.id }
+            ?: AnimationLayer(name = "Layer 1").also { layers.add(0, it); selectedLayerId = it.id }
 
     fun selectLayer(layerId: String): Boolean {
-        if (layers.none { it.id == layerId }) return false
+        if (layers.none { it.id == layerId && !it.isBackground }) return false
         selectedLayerId = layerId
         return true
     }
@@ -84,7 +92,8 @@ data class AnimationDocument(
         onion.previousCount = onion.previousCount.coerceIn(0, 12)
         onion.nextCount = onion.nextCount.coerceIn(0, 12)
         onion.opacity = onion.opacity.coerceIn(0, 100)
-        if (layers.none { it.id == selectedLayerId }) selectedLayerId = layers.firstOrNull()?.id
+        if (layers.none { it.id == selectedLayerId && !it.isBackground }) selectedLayerId = layers.firstOrNull { !it.isBackground }?.id
+        if (layers.none { it.isBackground }) layers.add(AnimationLayer(name = "Background", locked = true, isBackground = true))
     }
 
     fun exposureAt(frame: Int, layerId: String? = selectedLayerId): Int =
@@ -123,6 +132,7 @@ data class AnimationDocument(
 
     fun duplicateFrame(frame: Int) {
         layers.forEach { layer ->
+            if (layer.isBackground) return@forEach
             val src = layer.frameAt(frame) ?: return@forEach
             val copy = DrawingFrame(exposure = src.exposure)
             src.strokes.forEach { s -> copy.strokes += s.copy(samples = s.samples.map { it.copy() }.toMutableList()) }
@@ -146,23 +156,26 @@ data class AnimationDocument(
         normalize()
     }
 
-    fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer =
+    fun addLayer(name: String = "Layer ${layers.count { !it.isBackground } + 1}"): AnimationLayer =
         AnimationLayer(name = name).also {
-            layers.add(0, it)
+            val backgroundIndex = layers.indexOfFirst { it.isBackground }
+            if (backgroundIndex >= 0) layers.add(backgroundIndex, it) else layers.add(it)
             selectedLayerId = it.id
         }
 
     fun deleteLayer(layerId: String) {
-        if (layers.size <= 1) return
+        val target = layers.firstOrNull { it.id == layerId } ?: return
+        if (target.isBackground || layers.count { !it.isBackground } <= 1) return
         val wasSelected = selectedLayerId == layerId
         layers.removeAll { it.id == layerId }
-        if (wasSelected) selectedLayerId = layers.firstOrNull()?.id
+        if (wasSelected) selectedLayerId = layers.firstOrNull { !it.isBackground }?.id
     }
 
     fun moveLayer(layerId: String, delta: Int) {
         val i = layers.indexOfFirst { it.id == layerId }
-        if (i < 0) return
-        val ni = (i + delta).coerceIn(0, layers.lastIndex)
+        if (i < 0 || layers[i].isBackground) return
+        val backgroundIndex = layers.indexOfFirst { it.isBackground }
+        val ni = (i + delta).coerceIn(0, maxOf(0, backgroundIndex - 1))
         if (i != ni) layers.add(ni, layers.removeAt(i))
     }
 }
