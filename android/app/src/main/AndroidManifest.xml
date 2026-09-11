@@ -19,6 +19,11 @@
             android:name=".MainActivity"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
+        <activity
+            android:name=".ProjectHomeActivity"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
