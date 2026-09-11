@@ -1,0 +1,73 @@
+# ibisPaint IPBZ research
+
+The official ibisPaint documentation confirms that custom brushes are exported/imported as QR-code images and that original brush patterns can be embedded in brushes. Public reverse-engineering notes identify the decoded payload signature as `IPBZ` followed by binary data.
+
+## New finding from the user-provided ibisPaint APK/source archive
+
+Static inspection of the native `lib/arm64-v8a/libibispaint.so` revealed exported C++ symbols for the actual brush QR subsystem, including:
+
+- `BrushQrUtil::getBrushParametersFromBrushQrData`
+- `BrushQrUtil::getBrushParametersFromBrushQrImage`
+- `BrushQrUtil::importBrushQrData`
+- `BrushQrUtil::dispatchBrushImport`
+- `BrushQrUtil::BRUSH_QR_MAGIC`
+- `BrushQrImageTool::setExportBrushParameter`
+- `BrushPane::exportBrushQrImage`
+- `BrushPane::importBrushQrImage`
+- `BrushParameterSubChunk`
+- `ChunkInputStream::readSubChunkOrNull<BrushParameterSubChunk,...>`
+- `ChunkOutputStream::writeSubChunks<BrushParameterSubChunk*>`
+
+The binary also exposes a large set of `BrushParameterSubChunk` getters/setters covering thickness, opacity, texture opacity/scale, pressure and speed dynamics, jitter, particles, wetness, dragging, antialiasing, aspect, rotation, brush-pattern MD5, texture-pattern MD5, blurring-pattern MD5, blend/lock flags, and other brush state.
+
+### Confirmed serialization pipeline details
+
+Reverse-engineering of the native parser shows substantially more than a simple opaque IPBZ blob:
+
+1. The QR decoder passes raw brush data to `BrushQrUtil::getBrushParametersFromBrushQrData`.
+2. The parser reads the data as a sequence of records. Each record begins with an 8-byte length value and then that many bytes are copied into a byte-vector.
+3. Each record is inspected for a 4-byte magic/header string. The native code compares this header as UTF-8 text before continuing.
+4. A version integer is read from the decoded stream and compared with the installed application's version/compatibility logic.
+5. The payload then goes through `InflaterInputStream`, confirming zlib/deflate compression in the brush serialization path.
+6. After inflation, `ChunkInputStream` is used. `startReadChunk()` is called and the first expected chunk identifier observed in the current binary is `0x01000202`.
+7. A `BrushParameterSubChunk` object is instantiated and its `deserializeClassSpecifics(ChunkInputStream&)` method is invoked.
+8. The resulting `BrushParameterSubChunk` is then passed into the brush import pipeline.
+
+The native symbol table and disassembly expose the semantic model directly. The parameter object has dedicated serialization/deserialization code and setters for many fields, including:
+
+- thickness, min/max thickness, start/end thickness
+- opacity and start/end alpha
+- spacing and thin-spacing behavior
+- pressure→thickness/opacity and speed→thickness/opacity/blur
+- blur at start/middle/end and blur dynamics
+- jitter position/thickness/opacity/spacing/rotation/color
+- scatter and particle size/density/deviation
+- aspect, initial angle, rotation/following behavior
+- wetness, dragging, color mix and watercolor correction
+- texture opacity/scale/angle/moving/lower-limit/invert/antialias
+- brush-pattern, texture-pattern and blurring-pattern identifiers/MD5s
+- antialias/multisampling settings
+- blend/current-color/lock/vector/billboard/particle flags
+- pressure-graph usage and serialized pressure-graph thumbnails
+- frame-shadow parameters
+- brush algorithm/type flags
+
+This is a major breakthrough: the IPBZ format is now demonstrably a **compressed chunked serialization of ibisPaint brush objects**, rather than an unknowable arbitrary binary format.
+
+## Current implementation strategy
+
+Anima-me must not copy or embed the proprietary native implementation. Instead, it will implement an independent parser using the observed public/runtime behavior and the independently re-created data model. The original IPBZ bytes remain stored losslessly so that unknown fields/resources are never destroyed.
+
+The next decoder work should therefore be:
+
+- implement the observed 8-byte record framing;
+- validate the 4-byte IPBZ magic from real samples;
+- implement zlib/deflate decompression;
+- implement the observed chunk header/length framing;
+- implement an independent `BrushParameterSubChunk` serializer/deserializer matching the observed field semantics;
+- preserve unknown chunks and unknown fields byte-for-byte;
+- resolve brush/texture/blurring pattern hashes against embedded resources when present;
+- map the decoded values into Anima-me's richer `BrushSettings` model;
+- add corpus tests using real IPBZ QR images and compare imported behavior/round-trip bytes.
+
+We do not claim semantic 100% until real IPBZ samples validate every field and referenced resource. The goal is exact semantic coverage while preserving every unrecognized byte.
