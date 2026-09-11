@@ -1,6 +1,7 @@
 package com.animame
 
 import android.app.Activity
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
@@ -18,51 +19,45 @@ class SettingsActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         val accent = ThemeColorStore.get(this)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 36, 40, 36)
+            setPadding(40, 28, 40, 28)
             setBackgroundColor(Color.rgb(18, 20, 23))
         }
+        root.addView(TextView(this).apply { text = "Definições do Anima-me"; textSize = 26f; setTextColor(Color.WHITE) })
         root.addView(TextView(this).apply {
-            text = "Definições do Anima-me"
-            textSize = 26f
-            setTextColor(Color.WHITE)
+            text = "A organização mantém as definições gerais separadas das opções rápidas do editor."
+            textSize = 13f; setTextColor(Color.LTGRAY); setPadding(0, 4, 0, 8)
         })
+        root.addView(Button(this).apply {
+            text = "Opções do pincel"
+            setOnClickListener { startActivity(Intent(this@SettingsActivity, ToolOptionsActivity::class.java)) }
+        }, LinearLayout.LayoutParams(-1, 52).apply { setMargins(0, 6, 0, 8) })
         root.addView(TextView(this).apply {
-            text = "Cor da interface"
-            textSize = 18f
-            setTextColor(Color.LTGRAY)
-            setPadding(0, 28, 0, 18)
+            text = "Cor da interface"; textSize = 18f; setTextColor(Color.LTGRAY); setPadding(0, 14, 0, 12)
         })
         val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         colors.toList().chunked(4).forEach { rowColors ->
             val row = LinearLayout(this).apply { gravity = Gravity.CENTER }
             rowColors.forEach { color ->
                 val button = Button(this).apply {
-                    text = "●"
-                    textSize = 28f
-                    setTextColor(color)
-                    setBackgroundColor(Color.rgb(42, 46, 52))
+                    text = ""
+                    setBackgroundColor(color)
                     setOnClickListener {
                         ThemeColorStore.set(this@SettingsActivity, color)
                         setResult(RESULT_OK)
                         finish()
                     }
                 }
-                row.addView(button, LinearLayout.LayoutParams(0, 76).apply {
-                    weight = 1f
-                    setMargins(6, 6, 6, 6)
-                })
+                row.addView(button, LinearLayout.LayoutParams(0, 68).apply { weight = 1f; setMargins(6, 6, 6, 6) })
             }
             grid.addView(row)
         }
         root.addView(grid)
         root.addView(TextView(this).apply {
-            text = "Cor atual"
-            textSize = 16f
-            setTextColor(accent)
-            setPadding(0, 22, 0, 0)
+            text = "Cor atual"; textSize = 16f; setTextColor(accent); setPadding(0, 18, 0, 0)
         })
         setContentView(root)
     }
