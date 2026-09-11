@@ -18,6 +18,7 @@ object ThemeColorStore {
 
     fun get(context: Context): Int {
         LiquifyUiBootstrap.install(context)
+        ProfessionalToolsBootstrap.install(context)
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getInt(KEY_ACCENT, DEFAULT)
     }
