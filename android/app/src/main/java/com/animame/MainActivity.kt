@@ -128,7 +128,14 @@ class MainActivity : Activity() {
     private enum class Tool { BRUSH, ERASER }
 
     private inner class EditorSurface : View(this@MainActivity), Choreographer.FrameCallback {
-        val document = AnimationDocument(duration = 1)
+        val document = AnimationDocument(
+            name = intent.getStringExtra("project_name") ?: "Minha animação",
+            width = intent.getIntExtra("project_width", 1280),
+            height = intent.getIntExtra("project_height", 720),
+            fps = intent.getIntExtra("project_fps", 24),
+            duration = intent.getIntExtra("project_duration", 1).coerceAtLeast(1),
+            transparentBackground = intent.getBooleanExtra("project_transparent", false)
+        )
         private val currentSamples = mutableListOf<StrokeSample>()
         private var previewStamps = emptyList<BrushEngine.Stamp>()
         private var accent = ThemeColorStore.DEFAULT
@@ -154,13 +161,17 @@ class MainActivity : Activity() {
         private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 25f }
         private val sub = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.LTGRAY; textSize = 15f }
 
-        init { refreshTheme(); isFocusable = true }
+        init {
+            document.normalize()
+            refreshTheme()
+            isFocusable = true
+        }
 
         fun refreshTheme() {
             accent = ThemeColorStore.get(this@MainActivity)
             bg.color = Color.rgb(18, 20, 23)
             panel.color = blend(accent, Color.rgb(30, 34, 39), .82f)
-            paper.color = Color.rgb(245, 245, 245)
+            paper.color = document.backgroundColor
         }
 
         override fun onDraw(c: Canvas) {
@@ -174,13 +185,13 @@ class MainActivity : Activity() {
             c.scale(viewport.scale, viewport.scale)
             val left = width * .07f
             val right = width * .93f
-            c.drawRect(left, top + dp(14), right, bottom - dp(14), paper)
+            if (!document.transparentBackground) c.drawRect(left, top + dp(14), right, bottom - dp(14), paper)
             drawOnionSkin(c)
             drawDocument(c)
             if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, accent, 1f)
             c.restore()
             c.drawText("ANIMA-ME", dp(78).toFloat(), dp(38).toFloat(), text)
-            c.drawText("Frame ${document.currentFrame + 1}/${document.duration}  |  ${document.fps} FPS  |  ${document.layers.size} camadas  |  Zoom ${(viewport.scale * 100).toInt()}%", dp(78).toFloat(), dp(55).toFloat(), sub)
+            c.drawText("${document.name}  |  Frame ${document.currentFrame + 1}/${document.duration}  |  ${document.fps} FPS  |  ${document.width} × ${document.height}  |  Zoom ${(viewport.scale * 100).toInt()}%", dp(78).toFloat(), dp(55).toFloat(), sub)
             c.drawText("${document.activeLayer.name}  |  ${if (playing) "REPRODUZINDO" else "PARADO"}", (width - dp(240)).toFloat(), dp(38).toFloat(), sub)
         }
 
@@ -195,7 +206,7 @@ class MainActivity : Activity() {
 
         private fun drawDocument(c: Canvas) {
             document.layers.asReversed().forEach { layer ->
-                if (!layer.visible || layer.opacity <= 0f) return@forEach
+                if (!layer.visible || layer.opacity <= 0f || layer.isBackground) return@forEach
                 val frame = drawingForFrame(layer, document.currentFrame) ?: return@forEach
                 frame.strokes.forEach { stroke -> drawStamps(c, BrushEngine.stamps(stroke.samples, stroke.resolvedBrushSettings(), stroke.id.hashCode().toLong()), stroke.color, layer.opacity) }
             }
@@ -274,7 +285,7 @@ class MainActivity : Activity() {
         fun togglePlayback() { if (playing) stopPlayback() else startPlayback() }
         fun startPlayback() { if (document.duration <= 1) { Toast.makeText(this@MainActivity, "Adicione pelo menos 2 frames para reproduzir", Toast.LENGTH_SHORT).show(); return }; playing = true; lastPlaybackNanos = System.nanoTime(); playbackAccumulator = 0L; Choreographer.getInstance().postFrameCallback(this); refreshTimeline(); invalidate() }
         fun stopPlayback() { if (!playing) return; playing = false; Choreographer.getInstance().removeFrameCallback(this); lastPlaybackNanos = 0L; playbackAccumulator = 0L; refreshTimeline(); invalidate() }
-        override fun doFrame(frameTimeNanos: Long) { if (!playing) return; if (lastPlaybackNanos == 0L) lastPlaybackNanos = frameTimeNanos; playbackAccumulator += (frameTimeNanos - lastPlaybackNanos).coerceAtLeast(0L); lastPlaybackNanos = frameTimeNanos; val frameDuration = 1_000_000_000L / document.fps.coerceIn(1, 120); while (playbackAccumulator >= frameDuration) { playbackAccumulator -= frameDuration; document.currentFrame++; if (document.currentFrame >= document.duration) document.currentFrame = 0 }; invalidate(); refreshTimeline(); Choreographer.getInstance().postFrameCallback(this) }
+        override fun doFrame(frameTimeNanos: Long) { if (!playing) return; if (lastPlaybackNanos == 0L) lastPlaybackNanos = frameTimeNanos; playbackAccumulator += (frameTimeNanos - lastPlaybackNanos).coerceAtLeast(0L); lastPlaybackNanos = frameTimeNanos; val frameDuration = 1_000_000_000L / document.fps.coerceIn(1, 120); while (playbackAccumulator >= frameDuration) { playbackAccumulator -= frameDuration; document.advancePlaybackFrame() }; invalidate(); refreshTimeline(); Choreographer.getInstance().postFrameCallback(this) }
         fun adjustFps(delta: Int) { document.fps = (document.fps + delta).coerceIn(1, 60); Toast.makeText(this@MainActivity, "FPS: ${document.fps}", Toast.LENGTH_SHORT).show(); invalidate(); refreshTimeline() }
         fun adjustSize() { BrushToolState.size = when { BrushToolState.size < 8f -> 12f; BrushToolState.size < 24f -> 32f; BrushToolState.size < 64f -> 72f; else -> 6f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Tamanho: ${BrushToolState.size.toInt()} px", Toast.LENGTH_SHORT).show() }
         fun adjustOpacity() { BrushToolState.opacity = when { BrushToolState.opacity > .85f -> .65f; BrushToolState.opacity > .55f -> .35f; else -> 1f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Opacidade: ${(BrushToolState.opacity * 100).toInt()}%", Toast.LENGTH_SHORT).show() }
