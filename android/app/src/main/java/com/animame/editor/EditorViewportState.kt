@@ -22,4 +22,9 @@ data class EditorViewportState(
         offsetY = focusY - (focusY - offsetY) * (next / old)
         scale = next
     }
+
+    fun panBy(dx: Float, dy: Float) {
+        offsetX += dx
+        offsetY += dy
+    }
 }
