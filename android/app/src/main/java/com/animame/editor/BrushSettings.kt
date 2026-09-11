@@ -18,22 +18,20 @@ data class BrushSettings(
     val thinSpacing: Boolean = false, val fadeStart: Float = 0f, val fadeEnd: Float = 1f,
     val speedSizeFactor: Float = 1f, val speedOpacityFactor: Float = 1f, val speedBlurFactor: Float = 1f,
     val pressureSizeFactor: Float = 1f, val pressureOpacityFactor: Float = 1f, val pressureBlurFactor: Float = 1f,
+    val pressureExponent: Float = 1f, val flow: Float = 1f,
     val blur: Float = 0f, val blurStart: Float = 0f, val blurMiddle: Float = 0f, val blurEnd: Float = 0f,
     val scatterSize: Float = 0f, val scatterDensity: Float = 0f, val scatterDeviation: Float = 0f,
     val particleSizeAbsolute: Boolean = false, val particleThickness: Float = 1f,
     val textureOpacity: Float = 0f, val textureLowerLimit: Float = 0f, val textureAbsoluteSize: Boolean = false,
     val textureScale: Float = 1f, val textureAngle: Float = 0f, val textureMoving: Boolean = false,
-    val textureInvert: Boolean = false, val waterColorMix: Float = 0f, val waterWetness: Float = 0f,
-    val waterDragging: Float = 0f, val waterCorrection: Float = 0f, val doubleShadowSize: Float = 0f,
-    val doubleShadowAngle: Float = 0f, val doubleShadowDistance: Float = 0f, val blendMode: String = "NORMAL",
-    val usesCurrentColor: Boolean = true, val locked: Boolean = false, val billboard: Boolean = false,
-    val billboardPerspective: Boolean = false, val barrelRoll: Boolean = false, val dependsOnCanvasSize: Boolean = false
+    val textureInvert: Boolean = false, val textureGrain: Float = 0f,
+    val waterColorMix: Float = 0f, val waterWetness: Float = 0f, val waterDragging: Float = 0f, val waterCorrection: Float = 0f,
+    val doubleShadowSize: Float = 0f, val doubleShadowAngle: Float = 0f, val doubleShadowDistance: Float = 0f,
+    val blendMode: String = "NORMAL", val usesCurrentColor: Boolean = true, val locked: Boolean = false,
+    val billboard: Boolean = false, val billboardPerspective: Boolean = false, val barrelRoll: Boolean = false,
+    val dependsOnCanvasSize: Boolean = false
 ) {
-    fun normalized() = copy(
-        size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f, 1f),
-        spacing = spacing.coerceIn(.005f, 4f), aspect = aspect.coerceIn(.05f, 20f),
-        minSizeFactor = minSizeFactor.coerceIn(0f, 1f)
-    )
+    fun normalized() = copy(size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f, 1f), spacing = spacing.coerceIn(.005f, 4f), aspect = aspect.coerceIn(.05f, 20f), minSizeFactor = minSizeFactor.coerceIn(0f, 1f), pressureExponent = pressureExponent.coerceIn(.1f, 4f), flow = flow.coerceIn(0f, 1f), textureGrain = textureGrain.coerceIn(0f, 1f))
 }
 
 object BrushDefaults {
@@ -48,8 +46,7 @@ object BrushDefaults {
     fun forCatalog(id: String, name: String, category: String): BrushSettings = profile(id, name, category)
 
     private fun profile(id: String, name: String, category: String): BrushSettings {
-        val n = name.lowercase()
-        val c = category.lowercase()
+        val n = name.lowercase(); val c = category.lowercase()
         return when {
             c == "eraser" || n.contains("eraser") -> BrushSettings(id, name, category, BrushAlgorithm.ERASER, BrushMaterial.DIGITAL, opacity = 1f, spacing = .04f, constantOpacity = true)
             c == "watercolor" || n.contains("watercolor") -> BrushSettings(id, name, category, BrushAlgorithm.WATER, BrushMaterial.WATERCOLOR, spacing = .065f, minSizeFactor = .28f, minOpacity = .08f, pressureSizeFactor = .9f, pressureOpacityFactor = .8f, waterColorMix = if (n.contains("opaque")) .25f else .72f, waterWetness = if (n.contains("dry")) .25f else .88f, waterDragging = .42f, waterCorrection = .2f, textureOpacity = if (n.contains("texture")) .35f else .08f, fadeEnd = if (n.contains("fade")) .72f else 1f)
