@@ -21,6 +21,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.animame.editor.BrushCatalog
 import com.animame.editor.BrushEngine
+import com.animame.editor.BrushSettingsOverrides
 import com.animame.editor.StrokeSample
 
 class BrushPickerActivity : Activity() {
@@ -30,6 +31,7 @@ class BrushPickerActivity : Activity() {
     private lateinit var opacityLabel: TextView
     private lateinit var spacingLabel: TextView
     private lateinit var smoothingLabel: TextView
+    private lateinit var advancedLabel: TextView
     private var selectedCategory = "Todos"
     private val all = BrushCatalog.all()
     private val accent by lazy { ThemeColorStore.get(this) }
@@ -66,8 +68,8 @@ class BrushPickerActivity : Activity() {
         root.addView(browser, LinearLayout.LayoutParams(0, 1, 1f))
 
         val options = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 8, 4, 8); setBackgroundColor(panelBackground) }
-        options.addView(TextView(this).apply { text = "Opções do pincel"; textSize = 18f; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(-1, 40))
-        sizeLabel = optionLabel(); opacityLabel = optionLabel(); spacingLabel = optionLabel(); smoothingLabel = optionLabel()
+        options.addView(TextView(this).apply { text = "Propriedades do pincel"; textSize = 18f; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(-1, 40))
+        sizeLabel = optionLabel(); opacityLabel = optionLabel(); spacingLabel = optionLabel(); smoothingLabel = optionLabel(); advancedLabel = optionLabel()
         options.addView(sizeLabel)
         options.addView(seek("Tamanho", 1, 4096, BrushToolState.size.toInt()) { BrushToolState.size = it.toFloat(); updateLabels(); refreshGrid() })
         options.addView(opacityLabel)
@@ -77,18 +79,31 @@ class BrushPickerActivity : Activity() {
         options.addView(smoothingLabel)
         options.addView(seek("Suavização", 0, 100, (BrushToolState.smoothing * 100).toInt()) { BrushToolState.smoothing = it / 100f; updateLabels() })
         options.addView(check("Pressão do stylus", BrushToolState.pressure) { BrushToolState.pressure = it })
-        options.addView(check("Rotação aleatória", BrushToolState.randomRotation) { BrushToolState.randomRotation = it })
-        options.addView(check("Desenhar à frente", BrushToolState.drawsInFront) { BrushToolState.drawsInFront = it; if (it) BrushToolState.drawsInside = false })
-        options.addView(check("Desenhar dentro", BrushToolState.drawsInside) { BrushToolState.drawsInside = it; if (it) BrushToolState.drawsInFront = false })
-        options.addView(TextView(this).apply { text = "Biblioteca própria do Anima-me. Cada preset resolve as suas definições no motor, mantendo o catálogo separado da interface."; textSize = 12f; setTextColor(Color.LTGRAY); setPadding(0, 12, 0, 12) }, LinearLayout.LayoutParams(-1, 0, 1f))
-        options.addView(Button(this).apply { text = "Fechar"; setOnClickListener { BrushToolState.save(this@BrushPickerActivity); setResult(RESULT_OK); finish() } })
-        root.addView(options, LinearLayout.LayoutParams(330, -1))
+        options.addView(check("Rotação aleatória", BrushToolState.randomRotation) { it.also { value -> BrushSettingsOverrides.rotationJitter = if (value) 0.35f else 0f; BrushToolState.randomRotation = value } })
+        options.addView(check("Desenhar à frente", BrushToolState.drawsInFront) { it.also { value -> BrushToolState.drawsInFront = value; if (value) BrushToolState.drawsInside = false } })
+        options.addView(check("Desenhar dentro", BrushToolState.drawsInside) { it.also { value -> BrushToolState.drawsInside = value; if (value) BrushToolState.drawsInFront = false } })
+        options.addView(TextView(this).apply { text = "Avançado"; textSize = 15f; setTextColor(Color.WHITE); setPadding(0, 10, 0, 4) })
+        options.addView(seek("Mínimo de tamanho pela pressão", 0, 100, (BrushSettingsOverrides.pressureMinSize * 100).toInt()) { BrushSettingsOverrides.pressureMinSize = it / 100f; updateLabels() })
+        options.addView(seek("Mínimo de opacidade pela pressão", 0, 100, (BrushSettingsOverrides.pressureMinOpacity * 100).toInt()) { BrushSettingsOverrides.pressureMinOpacity = it / 100f; updateLabels() })
+        options.addView(seek("Fade inicial", 0, 100, (BrushSettingsOverrides.fadeStart * 100).toInt()) { BrushSettingsOverrides.fadeStart = it / 100f; if (BrushSettingsOverrides.fadeEnd < BrushSettingsOverrides.fadeStart) BrushSettingsOverrides.fadeEnd = BrushSettingsOverrides.fadeStart; updateLabels() })
+        options.addView(seek("Fade final", 0, 100, (BrushSettingsOverrides.fadeEnd * 100).toInt()) { BrushSettingsOverrides.fadeEnd = it / 100f; if (BrushSettingsOverrides.fadeEnd < BrushSettingsOverrides.fadeStart) BrushSettingsOverrides.fadeStart = BrushSettingsOverrides.fadeEnd; updateLabels() })
+        options.addView(seek("Jitter de posição", 0, 100, (BrushSettingsOverrides.jitterPosition * 100).toInt()) { BrushSettingsOverrides.jitterPosition = it / 100f; updateLabels() })
+        options.addView(seek("Jitter de espessura", 0, 100, (BrushSettingsOverrides.jitterThickness * 100).toInt()) { BrushSettingsOverrides.jitterThickness = it / 100f; updateLabels() })
+        options.addView(seek("Jitter de opacidade", 0, 100, (BrushSettingsOverrides.jitterOpacity * 100).toInt()) { BrushSettingsOverrides.jitterOpacity = it / 100f; updateLabels() })
+        options.addView(seek("Desfoque", 0, 100, (BrushSettingsOverrides.blur * 100).toInt()) { BrushSettingsOverrides.blur = it / 100f; updateLabels() })
+        options.addView(seek("Variação de matiz", 0, 100, (BrushSettingsOverrides.hueJitter * 100).toInt()) { BrushSettingsOverrides.hueJitter = it / 100f; updateLabels() })
+        options.addView(seek("Variação de saturação", 0, 100, (BrushSettingsOverrides.saturationJitter * 100).toInt()) { BrushSettingsOverrides.saturationJitter = it / 100f; updateLabels() })
+        options.addView(seek("Variação de brilho", 0, 100, (BrushSettingsOverrides.brightnessJitter * 100).toInt()) { BrushSettingsOverrides.brightnessJitter = it / 100f; updateLabels() })
+        options.addView(advancedLabel)
+        options.addView(TextView(this).apply { text = "As propriedades avançadas são aplicadas por cima do preset selecionado e guardadas entre sessões."; textSize = 11f; setTextColor(Color.LTGRAY); setPadding(0, 8, 0, 8) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        options.addView(Button(this).apply { text = "Guardar e fechar"; setOnClickListener { BrushToolState.save(this@BrushPickerActivity); setResult(RESULT_OK); finish() } })
+        root.addView(ScrollView(this).apply { addView(options) }, LinearLayout.LayoutParams(350, -1))
         setContentView(root); updateLabels(); refreshGrid()
     }
 
     private fun optionLabel() = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; setPadding(0, 4, 0, 0) }
     private fun seek(name: String, min: Int, max: Int, initial: Int, onChange: (Int) -> Unit): SeekBar {
-        val bar = SeekBar(this); bar.max = max - min; bar.progress = (initial - min).coerceIn(0, max - min)
+        val bar = SeekBar(this); bar.max = max - min; bar.progress = (initial - min).coerceIn(0, max - min); bar.contentDescription = name
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { onChange(progress + min) }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -101,6 +116,7 @@ class BrushPickerActivity : Activity() {
         opacityLabel.text = "Opacidade: ${(BrushToolState.opacity * 100).toInt()}%"
         spacingLabel.text = "Espaçamento: ${"%.2f".format(BrushToolState.spacing)}"
         smoothingLabel.text = "Suavização: ${(BrushToolState.smoothing * 100).toInt()}%"
+        advancedLabel.text = "Pressão ${"%.0f".format(BrushSettingsOverrides.pressureMinSize * 100)}%–${"%.0f".format(BrushSettingsOverrides.pressureMinOpacity * 100)}%  |  Fade ${"%.0f".format(BrushSettingsOverrides.fadeStart * 100)}–${"%.0f".format(BrushSettingsOverrides.fadeEnd * 100)}%"
     }
     private fun refreshGrid() {
         grid.removeAllViews(); val q = search.text?.toString()?.trim()?.lowercase().orEmpty()

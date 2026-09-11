@@ -14,6 +14,11 @@ data class EditorViewportState(
         offsetY = 0f
     }
 
+    fun panBy(dx: Float, dy: Float) {
+        offsetX += dx
+        offsetY += dy
+    }
+
     fun zoomAt(factor: Float, focusX: Float, focusY: Float) {
         val old = scale
         val next = min(8f, max(.25f, old * factor))

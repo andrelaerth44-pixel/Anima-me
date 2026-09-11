@@ -29,11 +29,14 @@ data class BrushSettings(
     val usesCurrentColor: Boolean = true, val locked: Boolean = false, val billboard: Boolean = false,
     val billboardPerspective: Boolean = false, val barrelRoll: Boolean = false, val dependsOnCanvasSize: Boolean = false
 ) {
-    fun normalized() = copy(
-        size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f, 1f),
-        spacing = spacing.coerceIn(.005f, 4f), aspect = aspect.coerceIn(.05f, 20f),
-        minSizeFactor = minSizeFactor.coerceIn(0f, 1f)
-    )
+    fun normalized(): BrushSettings {
+        val base = copy(
+            size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f, 1f),
+            spacing = spacing.coerceIn(.005f, 4f), aspect = aspect.coerceIn(.05f, 20f),
+            minSizeFactor = minSizeFactor.coerceIn(0f, 1f)
+        )
+        return BrushSettingsOverrides.apply(base)
+    }
 }
 
 object BrushDefaults {
