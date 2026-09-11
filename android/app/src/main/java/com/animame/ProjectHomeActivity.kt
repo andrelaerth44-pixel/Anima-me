@@ -12,9 +12,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
-import android.widget.ArrayAdapter
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,7 +38,6 @@ class ProjectHomeActivity : Activity() {
             setBackgroundColor(Color.rgb(18, 20, 23))
             setPadding(dp(28), dp(20), dp(28), dp(20))
         }
-
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -52,18 +49,14 @@ class ProjectHomeActivity : Activity() {
         }, LinearLayout.LayoutParams(0, dp(54), 1f))
         header.addView(button("Novo projeto", 140) { showNewProjectDialog() })
         root.addView(header)
-
         root.addView(TextView(this).apply {
             text = "Projetos"
             textSize = 18f
             setTextColor(Color.LTGRAY)
             setPadding(0, dp(16), 0, dp(8))
         })
-
         val scroll = ScrollView(this)
-        list = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(list)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -83,7 +76,6 @@ class ProjectHomeActivity : Activity() {
             })
             return
         }
-
         for (i in 0 until projects.length()) {
             val project = projects.getJSONObject(i)
             val card = LinearLayout(this).apply {
@@ -109,7 +101,6 @@ class ProjectHomeActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), 0)
         }
-
         val name = field("Nome do projeto", "Minha animação")
         val width = numberField("Largura", "1280")
         val height = numberField("Altura", "720")
@@ -120,7 +111,6 @@ class ProjectHomeActivity : Activity() {
             setTextColor(Color.WHITE)
             isChecked = false
         }
-
         content.addView(label("Nome")); content.addView(name)
         content.addView(label("Resolução"))
         val resolutionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -131,7 +121,6 @@ class ProjectHomeActivity : Activity() {
         content.addView(label("Framerate")); content.addView(fps)
         content.addView(label("Frames iniciais")); content.addView(frames)
         content.addView(transparent)
-
         val scroll = ScrollView(this).apply { addView(content) }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Novo projeto")
@@ -139,7 +128,6 @@ class ProjectHomeActivity : Activity() {
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("OK", null)
             .create()
-
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val projectName = name.text.toString().trim().ifEmpty { "Minha animação" }
