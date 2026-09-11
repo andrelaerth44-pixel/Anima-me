@@ -25,6 +25,11 @@ class BrushPickerActivity : Activity() {
     private lateinit var smoothingLabel: TextView
     private var selectedCategory = "Todos"
     private val all = BrushCatalog.all()
+    private val accent by lazy { ThemeColorStore.get(this) }
+    private val pageBackground = Color.rgb(7, 26, 43)
+    private val panelBackground = Color.rgb(10, 31, 49)
+    private val fieldBackground = Color.rgb(17, 39, 57)
+    private val cellBackground = Color.rgb(15, 36, 54)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +41,7 @@ class BrushPickerActivity : Activity() {
     private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(Color.rgb(18, 20, 23))
+            setBackgroundColor(pageBackground)
             setPadding(14, 12, 14, 12)
         }
 
@@ -54,7 +59,7 @@ class BrushPickerActivity : Activity() {
             setSingleLine(true)
             setTextColor(Color.WHITE)
             setHintTextColor(Color.LTGRAY)
-            setBackgroundColor(Color.rgb(38, 42, 48))
+            setBackgroundColor(fieldBackground)
             setPadding(14, 0, 14, 0)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
@@ -86,7 +91,7 @@ class BrushPickerActivity : Activity() {
         val options = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(18, 8, 4, 8)
-            setBackgroundColor(Color.rgb(27, 30, 35))
+            setBackgroundColor(panelBackground)
         }
         options.addView(TextView(this).apply {
             text = "Opções do pincel"
@@ -116,7 +121,10 @@ class BrushPickerActivity : Activity() {
             setTextColor(Color.LTGRAY)
             setPadding(0, 12, 0, 12)
         }, LinearLayout.LayoutParams(-1, 0, 1f))
-        options.addView(Button(this).apply { text = "Fechar"; setOnClickListener { BrushToolState.save(this@BrushPickerActivity); finish() } })
+        options.addView(Button(this).apply {
+            text = "Fechar"
+            setOnClickListener { BrushToolState.save(this@BrushPickerActivity); finish() }
+        })
         root.addView(options, LinearLayout.LayoutParams(330, -1))
 
         setContentView(root)
@@ -160,11 +168,12 @@ class BrushPickerActivity : Activity() {
         val q = search.text?.toString()?.trim()?.lowercase().orEmpty()
         all.filter { p -> (selectedCategory == "Todos" || p.category == selectedCategory) && (q.isEmpty() || p.name.lowercase().contains(q)) }
             .forEach { preset ->
+                val selected = preset.id == BrushToolState.brushId
                 val cell = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
                     setPadding(7, 6, 7, 6)
-                    setBackgroundColor(if (preset.id == BrushToolState.brushId) Color.rgb(45, 105, 104) else Color.rgb(38, 42, 48))
+                    setBackgroundColor(if (selected) accent else cellBackground)
                     setOnClickListener {
                         BrushToolState.brushId = preset.id
                         BrushToolState.save(this@BrushPickerActivity)
