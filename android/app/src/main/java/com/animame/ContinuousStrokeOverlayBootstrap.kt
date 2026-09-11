@@ -9,7 +9,6 @@ import android.view.View
 import android.widget.FrameLayout
 import com.animame.editor.AnimationDocument
 import com.animame.editor.StrokeData
-import java.lang.reflect.Field
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -35,16 +34,20 @@ object ContinuousStrokeOverlayBootstrap {
         }, 120L)
     }
 
-    private class Overlay(private val activity: Activity, private val editor: Any) : View(activity) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private class Overlay(activity: Activity, private val editor: Any) : View(activity) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
 
         override fun onTouchEvent(event: MotionEvent): Boolean = false
 
         override fun onDraw(canvas: Canvas) {
             val document = readField(editor, "document") as? AnimationDocument ?: return
-            val playing = readBoolean(editor, "playing", false)
-            if (playing) return
-            val layer = document.layers.firstOrNull { it.id == readString(editor, "activeLayerId", document.activeLayer.id) } ?: document.activeLayer
+            if (readBoolean(editor, "playing", false)) return
+            val activeId = readString(editor, "activeLayerId", document.activeLayer.id)
+            val layer = document.layers.firstOrNull { it.id == activeId } ?: document.activeLayer
             val frame = layer.frameAt(document.currentFrame) ?: return
             val zoom = readFloat(editor, "zoom", 1f).coerceAtLeast(.01f)
             val panX = readFloat(editor, "panX", 0f)
@@ -56,29 +59,33 @@ object ContinuousStrokeOverlayBootstrap {
             val cx = (left + right) * .5f; val cy = (top + bottom) * .5f
             canvas.save()
             canvas.clipRect(left, top + 14f, right, bottom - 14f)
-            frame.strokes.forEach { stroke -> drawStroke(canvas, stroke, cx, cy, zoom, panX, panY, rotation) }
+            frame.strokes.forEach { drawStroke(canvas, it, cx, cy, zoom, panX, panY, rotation) }
             canvas.restore()
         }
 
         private fun drawStroke(c: Canvas, stroke: StrokeData, cx: Float, cy: Float, zoom: Float, panX: Float, panY: Float, rotation: Double) {
             val samples = stroke.samples
             if (samples.size < 2) return
-            val r = Color.red(stroke.color); val g = Color.green(stroke.color); val b = Color.blue(stroke.color)
-            paint.color = Color.argb((stroke.opacity.coerceIn(0f,1f) * 255f).toInt().coerceIn(1,255), r, g, b)
+            paint.color = Color.argb(
+                (stroke.opacity.coerceIn(0f, 1f) * 255f).toInt().coerceIn(1, 255),
+                Color.red(stroke.color), Color.green(stroke.color), Color.blue(stroke.color)
+            )
             for (i in 1 until samples.size) {
                 val a = samples[i - 1]; val p = samples[i]
                 val sa = transform(a.x, a.y, cx, cy, zoom, panX, panY, rotation)
                 val sb = transform(p.x, p.y, cx, cy, zoom, panX, panY, rotation)
                 val pressure = ((a.pressure + p.pressure) * .5f).coerceIn(.05f, 1f)
                 paint.strokeWidth = (stroke.size * pressure * zoom).coerceAtLeast(.5f)
-                if (hypot(sb.first - sa.first, sb.second - sa.second) <= paint.strokeWidth * 8f) c.drawLine(sa.first, sa.second, sb.first, sb.second, paint)
+                if (hypot(sb.first - sa.first, sb.second - sa.second) <= paint.strokeWidth * 8f) {
+                    c.drawLine(sa.first, sa.second, sb.first, sb.second, paint)
+                }
             }
         }
 
         private fun transform(x: Float, y: Float, cx: Float, cy: Float, zoom: Float, panX: Float, panY: Float, rotation: Double): Pair<Float, Float> {
             val px = x - cx; val py = y - cy
             val co = cos(rotation); val si = sin(rotation)
-            return (cx + px * co - py * si) * zoom + panX to (cy + px * si + py * co) * zoom + panY
+            return cx + panX + (px * co - py * si) * zoom to cy + panY + (px * si + py * co) * zoom
         }
     }
 
