@@ -51,7 +51,6 @@ object BrushQrCodec {
         var magic: String? = null
         var version: Int? = null
         var payload: ByteArray? = null
-        var compression = Compression.NONE
         var brushChunk = false
         val records = mutableListOf<Record>()
 
@@ -71,7 +70,6 @@ object BrushQrCodec {
             val inflated = best?.second
             if (inflated != null && inflated.isNotEmpty() && (payload == null || inflated.size > payload!!.size)) {
                 payload = inflated
-                compression = best.first
             }
             brushChunk = brushChunk || raw.containsInt(BRUSH_PARAMETER_SUBCHUNK) || inflated?.containsInt(BRUSH_PARAMETER_SUBCHUNK) == true
             records += Record(raw, header, inflated, best?.first ?: Compression.NONE)
@@ -93,19 +91,22 @@ object BrushQrCodec {
 
     private fun inflate(data: ByteArray, nowrap: Boolean): ByteArray? = runCatching {
         val inflater = Inflater(nowrap)
-        inflater.setInput(data)
-        val output = LimitedBuffer(MAX_INFLATED_BYTES)
-        val buffer = ByteArray(16 * 1024)
-        while (!inflater.finished()) {
-            val count = inflater.inflate(buffer)
-            if (count > 0) {
-                output.write(buffer, count)
-                continue
+        try {
+            inflater.setInput(data)
+            val output = LimitedBuffer(MAX_INFLATED_BYTES)
+            val buffer = ByteArray(16 * 1024)
+            while (!inflater.finished()) {
+                val count = inflater.inflate(buffer)
+                if (count > 0) {
+                    output.write(buffer, count)
+                    continue
+                }
+                if (inflater.needsDictionary() || inflater.needsInput()) return@runCatching null
             }
-            if (inflater.needsDictionary() || inflater.needsInput()) return@runCatching null
+            output.toByteArray()
+        } finally {
+            inflater.end()
         }
-        inflater.end()
-        output.toByteArray()
     }.getOrNull()
 
     private fun hasMagic(data: ByteArray, magic: String): Boolean =
@@ -125,6 +126,7 @@ object BrushQrCodec {
     }
 
     private fun ByteArray.containsInt(value: Int): Boolean {
+        if (size < 4) return false
         val be = byteArrayOf(
             (value ushr 24).toByte(), (value ushr 16).toByte(),
             (value ushr 8).toByte(), value.toByte()
