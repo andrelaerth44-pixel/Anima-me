@@ -29,6 +29,10 @@ data class BrushSettings(
     val doubleShadowDistance: Float = 0f, val blendMode: String = "NORMAL", val usesCurrentColor: Boolean = true,
     val locked: Boolean = false, val billboard: Boolean = false, val billboardPerspective: Boolean = false,
     val barrelRoll: Boolean = false, val dependsOnCanvasSize: Boolean = false,
+    // Raster-flow controls are independent from trajectory stabilization.
+    val flow: Float = 1f,
+    val textureGrain: Float = 0f,
+    val pressureExponent: Float = 1f,
     // ibisPaint-style per-brush stroke correction controls.
     val stabilizerConstant: Float = 0f,
     val stabilizerFastStrokes: Float = 0f,
@@ -43,7 +47,11 @@ data class BrushSettings(
     fun normalized() = copy(
         size = size.coerceIn(.25f, 4096f), opacity = opacity.coerceIn(0f,1f),
         spacing = spacing.coerceIn(.005f,4f), aspect = aspect.coerceIn(.05f,20f),
-        minSizeFactor = minSizeFactor.coerceIn(0f,1f),
+        minSizeFactor = minSizeFactor.coerceIn(0f,1f), minOpacity = minOpacity.coerceIn(0f,1f),
+        fadeOpacity = fadeOpacity.coerceIn(0f,1f), flow = flow.coerceIn(0f,1f),
+        textureOpacity = textureOpacity.coerceIn(0f,1f), textureLowerLimit = textureLowerLimit.coerceIn(0f,1f),
+        textureScale = textureScale.coerceIn(.01f,100f), textureGrain = textureGrain.coerceIn(0f,1f),
+        pressureExponent = pressureExponent.coerceIn(.1f,4f),
         stabilizerConstant = stabilizerConstant.coerceIn(0f,100f),
         stabilizerFastStrokes = stabilizerFastStrokes.coerceIn(0f,100f),
         stabilizerSmoothing = stabilizerSmoothing.coerceIn(0f,100f),
@@ -54,11 +62,11 @@ data class BrushSettings(
 
 object BrushDefaults {
     fun forPreset(id: String): BrushSettings = when {
-        id.contains("water", true) -> BrushSettings(id=id, name=id, category="Watercolor", algorithm=BrushAlgorithm.WATER, material=BrushMaterial.WATERCOLOR, spacing=.08f, waterColorMix=.65f, waterWetness=.8f, waterDragging=.35f)
-        id.contains("oil", true) -> BrushSettings(id=id, name=id, category="Paint", material=BrushMaterial.OIL, spacing=.09f, textureOpacity=.2f)
-        id.contains("pencil", true) -> BrushSettings(id=id, name=id, category="Sketch", material=BrushMaterial.PENCIL, spacing=.07f, minSizeFactor=.35f, pressureSizeFactor=.9f, textureOpacity=.55f)
-        id.contains("airbrush", true) -> BrushSettings(id=id, name=id, category="Airbrush", algorithm=BrushAlgorithm.AIRBRUSH, material=BrushMaterial.AIRBRUSH, spacing=.03f, opacity=.2f, blur=.65f)
-        id.contains("eraser", true) -> BrushSettings(id=id, name=id, category="Eraser", algorithm=BrushAlgorithm.ERASER, material=BrushMaterial.DIGITAL)
+        id.contains("water", true) -> BrushSettings(id=id, name=id, category="Watercolor", algorithm=BrushAlgorithm.WATER, material=BrushMaterial.WATERCOLOR, spacing=.08f, waterColorMix=.65f, waterWetness=.8f, waterDragging=.35f, flow=.72f, textureGrain=.18f)
+        id.contains("oil", true) -> BrushSettings(id=id, name=id, category="Paint", material=BrushMaterial.OIL, spacing=.09f, textureOpacity=.2f, flow=.9f, textureGrain=.25f)
+        id.contains("pencil", true) -> BrushSettings(id=id, name=id, category="Sketch", material=BrushMaterial.PENCIL, spacing=.07f, minSizeFactor=.35f, pressureSizeFactor=.9f, textureOpacity=.55f, textureGrain=.7f, flow=.82f)
+        id.contains("airbrush", true) -> BrushSettings(id=id, name=id, category="Airbrush", algorithm=BrushAlgorithm.AIRBRUSH, material=BrushMaterial.AIRBRUSH, spacing=.03f, opacity=.2f, blur=.65f, flow=.65f)
+        id.contains("eraser", true) -> BrushSettings(id=id, name=id, category="Eraser", algorithm=BrushAlgorithm.ERASER, material=BrushMaterial.DIGITAL, flow=1f)
         else -> BrushSettings(id=id, name=id)
     }
 }
