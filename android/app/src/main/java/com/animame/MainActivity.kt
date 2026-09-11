@@ -6,13 +6,17 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
+import android.os.Build
 import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import com.animame.editor.AnimationDocument
 import com.animame.editor.AnimationLayer
@@ -27,7 +31,11 @@ import com.animame.editor.StrokeSample
 class MainActivity : Activity() {
     private lateinit var editor: EditorSurface
     private lateinit var timeline: TimelinePanel
-    private val timelineHeightDp = 250
+    private lateinit var optionsPanel: LinearLayout
+    private val topBarDp = 54
+    private val timelineHeightDp = 238
+    private val toolBarWidthDp = 118
+    private val optionsWidthDp = 258
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,7 +50,7 @@ class MainActivity : Activity() {
             BrushToolState.load(this)
             editor.refreshTheme()
             editor.invalidate()
-            refreshTimeline()
+            refreshWorkspace()
         }
     }
 
@@ -56,24 +64,27 @@ class MainActivity : Activity() {
         editor = EditorSurface()
         root.addView(editor, FrameLayout.LayoutParams(-1, -1))
 
-        val top = LinearLayout(this).apply {
+        val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8), dp(6), dp(8), dp(6))
-            setBackgroundColor(Color.rgb(30, 34, 39))
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            setBackgroundColor(Color.rgb(31, 35, 40))
         }
-        top.addView(button("Definições", 82) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
-        top.addView(button("Pincéis", 72) { openBrushPicker() })
-        top.addView(button("Borracha", 82) { editor.tool = Tool.ERASER; editor.invalidate() })
-        top.addView(button("Tamanho", 74) { editor.adjustSize() })
-        top.addView(button("Opacidade", 82) { editor.adjustOpacity() })
-        top.addView(button("Nova camada", 96) { editor.addLayer() })
-        top.addView(button("Zoom +", 68) { editor.zoom(1.2f) })
-        top.addView(button("Zoom -", 68) { editor.zoom(.8333333f) })
-        top.addView(button("Ajustar", 68) { editor.resetViewport() })
-        top.addView(button("Reproduzir", 88) { editor.togglePlayback() })
-        top.addView(button("FPS -", 60) { editor.adjustFps(-1) })
-        top.addView(button("FPS +", 60) { editor.adjustFps(1) })
-        root.addView(top, FrameLayout.LayoutParams(-1, dp(62)))
+        header.addView(button("Menu", 60) { Toast.makeText(this@MainActivity, "Menu do projeto", Toast.LENGTH_SHORT).show() })
+        header.addView(button("Definições", 84) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
+        header.addView(TextView(this).apply {
+            text = "Desenho: ${editor.document.duration} frames"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(8), 0)
+        }, LinearLayout.LayoutParams(0, -1, 1f))
+        header.addView(button("Frame -", 68) { editor.previousFrame() })
+        header.addView(button("Frame +", 68) { editor.nextFrame() })
+        header.addView(button("Reproduzir", 88) { editor.togglePlayback() })
+        header.addView(button("FPS -", 58) { editor.adjustFps(-1) })
+        header.addView(button("FPS +", 58) { editor.adjustFps(1) })
+        header.addView(button("Exportar", 74) { Toast.makeText(this@MainActivity, "Hub de exportação disponível nas Definições", Toast.LENGTH_SHORT).show() })
+        root.addView(header, FrameLayout.LayoutParams(-1, dp(topBarDp)))
 
         timeline = TimelinePanel(
             this,
@@ -83,22 +94,125 @@ class MainActivity : Activity() {
                 editor.selectLayer(layerId)
                 editor.document.currentFrame = frame.coerceIn(0, editor.document.duration - 1)
                 editor.invalidate()
-                refreshTimeline()
+                refreshWorkspace()
             },
             onLayerSelected = { layerId ->
                 editor.selectLayer(layerId)
                 editor.invalidate()
-                refreshTimeline()
+                refreshWorkspace()
             },
             onLayerChanged = {
                 editor.document.normalize()
                 editor.invalidate()
-                refreshTimeline()
+                refreshWorkspace()
             }
         )
-        root.addView(timeline, FrameLayout.LayoutParams(-1, dp(timelineHeightDp)).apply { gravity = android.view.Gravity.BOTTOM })
+        root.addView(timeline, FrameLayout.LayoutParams(-1, dp(timelineHeightDp)).apply { topMargin = dp(topBarDp) })
+
+        val toolbar = buildToolBar()
+        root.addView(toolbar, FrameLayout.LayoutParams(dp(toolBarWidthDp), -1).apply { topMargin = dp(topBarDp + timelineHeightDp) })
+
+        optionsPanel = buildOptionsPanel()
+        root.addView(optionsPanel, FrameLayout.LayoutParams(dp(optionsWidthDp), -1).apply {
+            leftMargin = dp(toolBarWidthDp)
+            topMargin = dp(topBarDp + timelineHeightDp)
+        })
+
         setContentView(root)
-        refreshTimeline()
+        refreshWorkspace()
+    }
+
+    private fun buildToolBar(): LinearLayout {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            setBackgroundColor(Color.rgb(26, 29, 34))
+        }
+        panel.addView(button("Modificar camadas", 108) { refreshWorkspace() })
+        panel.addView(button("Adicionar desenho", 108) { editor.insertFrame() })
+        panel.addView(button("Timeline", 108) { timeline.visibility = View.VISIBLE })
+        panel.addView(button("Opções", 108) { optionsPanel.visibility = if (optionsPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE })
+        panel.addView(button("Pincel", 108) { editor.tool = Tool.BRUSH; refreshWorkspace(); editor.invalidate() })
+        panel.addView(button("Borracha", 108) { editor.tool = Tool.ERASER; refreshWorkspace(); editor.invalidate() })
+        panel.addView(button("Pincéis", 108) { openBrushPicker() })
+        panel.addView(button("Nova camada", 108) { editor.addLayer() })
+        panel.addView(button("Desfazer", 108) { editor.undo() })
+        panel.addView(button("Refazer", 108) { editor.redo() })
+        panel.addView(button("Reproduzir", 108) { editor.togglePlayback() })
+        panel.addView(button("Onion skin", 108) { editor.toggleOnion() })
+        panel.addView(button("Zoom +", 108) { editor.zoom(1.2f) })
+        panel.addView(button("Zoom -", 108) { editor.zoom(.8333333f) })
+        panel.addView(button("Ajustar", 108) { editor.resetViewport() })
+        return panel
+    }
+
+    private fun buildOptionsPanel(): LinearLayout {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(10), dp(10))
+            setBackgroundColor(Color.rgb(12, 30, 47))
+        }
+        panel.addView(TextView(this).apply {
+            text = "Opções da ferramenta"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(-1, dp(38)))
+        val brushName = TextView(this).apply { setTextColor(Color.WHITE); textSize = 14f }
+        panel.addView(brushName)
+        panel.addView(button("Abrir biblioteca de pincéis", 220) { openBrushPicker() })
+        val sizeLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f }
+        panel.addView(sizeLabel)
+        panel.addView(seekBar(1, 4096, BrushToolState.size.toInt()) { BrushToolState.size = it.toFloat(); BrushToolState.save(this@MainActivity); updateOptionLabels(brushName, sizeLabel, null) })
+        val opacityLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f }
+        panel.addView(opacityLabel)
+        panel.addView(seekBar(0, 100, (BrushToolState.opacity * 100f).toInt()) { BrushToolState.opacity = it / 100f; BrushToolState.save(this@MainActivity); updateOptionLabels(brushName, sizeLabel, opacityLabel) })
+        val spacingLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f }
+        panel.addView(spacingLabel)
+        panel.addView(seekBar(1, 400, (BrushToolState.spacing * 100f).toInt()) { BrushToolState.spacing = it / 100f; BrushToolState.save(this@MainActivity); spacingLabel.text = "Espaçamento: ${"%.2f".format(BrushToolState.spacing)}" })
+        val smoothingLabel = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f }
+        panel.addView(smoothingLabel)
+        panel.addView(seekBar(0, 100, (BrushToolState.smoothing * 100f).toInt()) { BrushToolState.smoothing = it / 100f; BrushToolState.save(this@MainActivity); smoothingLabel.text = "Suavização: ${(BrushToolState.smoothing * 100).toInt()}%" })
+        panel.addView(check("Sensibilidade à pressão", BrushToolState.pressure) { BrushToolState.pressure = it; BrushToolState.save(this@MainActivity) })
+        panel.addView(check("Randomizar rotação", BrushToolState.randomRotation) { BrushToolState.randomRotation = it; BrushToolState.save(this@MainActivity) })
+        panel.addView(TextView(this).apply {
+            text = "A interface mantém o fluxo horizontal de referência: ferramentas à esquerda, opções junto ao canvas e timeline no topo."
+            textSize = 12f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, dp(14), 0, 0)
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        panel.post {
+            updateOptionLabels(brushName, sizeLabel, opacityLabel)
+            spacingLabel.text = "Espaçamento: ${"%.2f".format(BrushToolState.spacing)}"
+            smoothingLabel.text = "Suavização: ${(BrushToolState.smoothing * 100).toInt()}%"
+        }
+        return panel
+    }
+
+    private fun updateOptionLabels(brushName: TextView, sizeLabel: TextView, opacityLabel: TextView?) {
+        val preset = BrushCatalog.all().firstOrNull { it.id == BrushToolState.brushId }
+        brushName.text = "${preset?.name ?: "Pincel"}  |  ${preset?.category ?: ""}"
+        sizeLabel.text = "Tamanho: ${BrushToolState.size.toInt()} px"
+        opacityLabel?.text = "Opacidade: ${(BrushToolState.opacity * 100).toInt()}%"
+    }
+
+    private fun seekBar(min: Int, max: Int, initial: Int, onChange: (Int) -> Unit): SeekBar {
+        return SeekBar(this).apply {
+            this.max = max - min
+            progress = (initial - min).coerceIn(0, max - min)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) onChange(progress + min) }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+    }
+
+    private fun check(label: String, checked: Boolean, action: (Boolean) -> Unit) = CheckBox(this).apply {
+        text = label
+        textSize = 12f
+        setTextColor(Color.WHITE)
+        isChecked = checked
+        setOnCheckedChangeListener { _, value -> action(value) }
     }
 
     private fun openBrushPicker() {
@@ -109,19 +223,21 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 42 && resultCode == RESULT_OK) {
             BrushToolState.load(this)
-            if (::editor.isInitialized) editor.invalidate()
+            editor.invalidate()
+            refreshWorkspace()
         }
     }
 
-    private fun refreshTimeline() {
+    private fun refreshWorkspace() {
         if (::timeline.isInitialized) timeline.refresh(ThemeColorStore.get(this))
+        if (::optionsPanel.isInitialized) optionsPanel.invalidate()
     }
 
     private fun button(label: String, widthDp: Int, action: () -> Unit) = Button(this).apply {
         text = label
-        textSize = 10f
+        textSize = 9f
         setOnClickListener { action() }
-        layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(52))
+        layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(46)).apply { setMargins(2, 2, 2, 2) }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -180,11 +296,11 @@ class MainActivity : Activity() {
 
         override fun onDraw(c: Canvas) {
             c.drawColor(bg.color)
-            val top = dp(62).toFloat()
-            val bottom = height - dp(timelineHeightDp).toFloat()
-            c.drawRect(0f, 0f, width.toFloat(), top, panel)
+            val top = dp(topBarDp + timelineHeightDp).toFloat()
+            val leftPanel = dp(toolBarWidthDp + if (optionsPanel.visibility == View.VISIBLE) optionsWidthDp else 0).toFloat()
+            val bottom = height.toFloat()
             c.save()
-            c.clipRect(0f, top, width.toFloat(), bottom)
+            c.clipRect(leftPanel, top, width.toFloat(), bottom)
             c.translate(viewport.offsetX, viewport.offsetY)
             c.scale(viewport.scale, viewport.scale)
             val left = width * .07f
@@ -194,9 +310,8 @@ class MainActivity : Activity() {
             drawDocument(c)
             if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, accent, 1f)
             c.restore()
-            c.drawText("ANIMA-ME", dp(78).toFloat(), dp(38).toFloat(), text)
-            c.drawText("${document.name}  |  Frame ${document.currentFrame + 1}/${document.duration}  |  ${document.fps} FPS  |  ${document.width} × ${document.height}  |  Zoom ${(viewport.scale * 100).toInt()}%", dp(78).toFloat(), dp(55).toFloat(), sub)
-            c.drawText("${document.activeLayer.name}  |  ${if (playing) "REPRODUZINDO" else "PARADO"}", (width - dp(240)).toFloat(), dp(38).toFloat(), sub)
+            c.drawText("Frame ${document.currentFrame + 1}/${document.duration}", (width - dp(150)).toFloat(), top - dp(12).toFloat(), sub)
+            c.drawText("Zoom ${(viewport.scale * 100).toInt()}%  |  Rotação 0°", (width - dp(180)).toFloat(), height - dp(8).toFloat(), sub)
         }
 
         private fun drawingForFrame(layer: AnimationLayer, frame: Int): DrawingFrame? {
@@ -237,10 +352,15 @@ class MainActivity : Activity() {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
             if (playing || document.activeLayer.locked) return true
-
+            if (event.actionMasked == MotionEvent.ACTION_CANCEL || (Build.VERSION.SDK_INT >= 33 && (event.flags and MotionEvent.FLAG_CANCELED) != 0)) {
+                cancelStroke()
+                return true
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (event.y < dp(62) || event.y > height - dp(timelineHeightDp) - dp(8)) return false
+                    val canvasTop = dp(topBarDp + timelineHeightDp)
+                    val canvasLeft = dp(toolBarWidthDp + if (optionsPanel.visibility == View.VISIBLE) optionsWidthDp else 0)
+                    if (event.y < canvasTop || event.x < canvasLeft) return false
                     panActive = false
                     panPointerId = MotionEvent.INVALID_POINTER_ID
                     currentSamples.clear()
@@ -281,21 +401,17 @@ class MainActivity : Activity() {
                     return true
                 }
                 MotionEvent.ACTION_POINTER_UP -> {
+                    if (Build.VERSION.SDK_INT >= 33 && (event.flags and MotionEvent.FLAG_CANCELED) != 0) cancelStroke()
                     if (event.pointerCount <= 2) {
                         panActive = false
                         panPointerId = MotionEvent.INVALID_POINTER_ID
                     }
                     return true
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (drawing && event.actionMasked == MotionEvent.ACTION_UP) commitStroke()
-                    drawing = false
-                    panActive = false
-                    panPointerId = MotionEvent.INVALID_POINTER_ID
-                    currentSamples.clear()
-                    previewStamps = emptyList()
-                    invalidate()
-                    refreshTimeline()
+                MotionEvent.ACTION_UP -> {
+                    if (drawing) commitStroke()
+                    cancelStrokeState()
+                    refreshWorkspace()
                     return true
                 }
             }
@@ -325,24 +441,28 @@ class MainActivity : Activity() {
             BrushToolState.save(this@MainActivity)
         }
 
+        private fun cancelStroke() { currentSamples.clear(); cancelStrokeState(); invalidate() }
+        private fun cancelStrokeState() { drawing = false; panActive = false; panPointerId = MotionEvent.INVALID_POINTER_ID; previewStamps = emptyList(); invalidate() }
         fun selectLayer(id: String) { document.selectLayer(id); invalidate() }
         fun zoom(factor: Float) { viewport.zoomAt(factor, width * .5f, height * .5f); invalidate() }
         fun resetViewport() { viewport.reset(); invalidate() }
-        fun insertFrame() { stopPlayback(); document.insertFrame(document.currentFrame); invalidate(); refreshTimeline() }
-        fun duplicateFrame() { stopPlayback(); document.duplicateFrame(document.currentFrame); document.currentFrame = (document.currentFrame + 1).coerceAtMost(document.duration - 1); invalidate(); refreshTimeline() }
-        fun deleteFrame() { stopPlayback(); if (document.duration <= 1) clearCurrentFrame() else { document.deleteFrame(document.currentFrame); invalidate(); refreshTimeline() } }
-        fun previousFrame() { stopPlayback(); document.currentFrame = (document.currentFrame - 1).coerceAtLeast(0); invalidate(); refreshTimeline() }
-        fun nextFrame() { stopPlayback(); document.currentFrame = (document.currentFrame + 1).coerceAtMost(document.duration - 1); invalidate(); refreshTimeline() }
-        fun toggleOnion() { onionEnabled = !onionEnabled; invalidate(); refreshTimeline() }
-        fun clearCurrentFrame() { document.activeLayer.frameAt(document.currentFrame)?.strokes?.clear(); invalidate(); refreshTimeline() }
-        fun addLayer() { document.addLayer(); invalidate(); refreshTimeline() }
+        fun insertFrame() { stopPlayback(); document.insertFrame(document.currentFrame); invalidate(); refreshWorkspace() }
+        fun duplicateFrame() { stopPlayback(); document.duplicateFrame(document.currentFrame); document.currentFrame = (document.currentFrame + 1).coerceAtMost(document.duration - 1); invalidate(); refreshWorkspace() }
+        fun deleteFrame() { stopPlayback(); if (document.duration <= 1) clearCurrentFrame() else { document.deleteFrame(document.currentFrame); invalidate(); refreshWorkspace() } }
+        fun previousFrame() { stopPlayback(); document.currentFrame = (document.currentFrame - 1).coerceAtLeast(0); invalidate(); refreshWorkspace() }
+        fun nextFrame() { stopPlayback(); document.currentFrame = (document.currentFrame + 1).coerceAtMost(document.duration - 1); invalidate(); refreshWorkspace() }
+        fun toggleOnion() { onionEnabled = !onionEnabled; invalidate(); refreshWorkspace() }
+        fun clearCurrentFrame() { document.activeLayer.frameAt(document.currentFrame)?.strokes?.clear(); invalidate(); refreshWorkspace() }
+        fun addLayer() { document.addLayer(); invalidate(); refreshWorkspace() }
+        fun undo() { Toast.makeText(this@MainActivity, "Histórico de ações: próxima integração", Toast.LENGTH_SHORT).show() }
+        fun redo() { Toast.makeText(this@MainActivity, "Histórico de ações: próxima integração", Toast.LENGTH_SHORT).show() }
         fun togglePlayback() { if (playing) stopPlayback() else startPlayback() }
-        fun startPlayback() { if (document.duration <= 1) { Toast.makeText(this@MainActivity, "Adicione pelo menos 2 frames para reproduzir", Toast.LENGTH_SHORT).show(); return }; playing = true; lastPlaybackNanos = System.nanoTime(); playbackAccumulator = 0L; Choreographer.getInstance().postFrameCallback(this); refreshTimeline(); invalidate() }
-        fun stopPlayback() { if (!playing) return; playing = false; Choreographer.getInstance().removeFrameCallback(this); lastPlaybackNanos = 0L; playbackAccumulator = 0L; refreshTimeline(); invalidate() }
-        override fun doFrame(frameTimeNanos: Long) { if (!playing) return; if (lastPlaybackNanos == 0L) lastPlaybackNanos = frameTimeNanos; playbackAccumulator += (frameTimeNanos - lastPlaybackNanos).coerceAtLeast(0L); lastPlaybackNanos = frameTimeNanos; val frameDuration = 1_000_000_000L / document.fps.coerceIn(1, 120); while (playbackAccumulator >= frameDuration) { playbackAccumulator -= frameDuration; document.advancePlaybackFrame() }; invalidate(); refreshTimeline(); Choreographer.getInstance().postFrameCallback(this) }
-        fun adjustFps(delta: Int) { document.fps = (document.fps + delta).coerceIn(1, 60); Toast.makeText(this@MainActivity, "FPS: ${document.fps}", Toast.LENGTH_SHORT).show(); invalidate(); refreshTimeline() }
-        fun adjustSize() { BrushToolState.size = when { BrushToolState.size < 8f -> 12f; BrushToolState.size < 24f -> 32f; BrushToolState.size < 64f -> 72f; else -> 6f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Tamanho: ${BrushToolState.size.toInt()} px", Toast.LENGTH_SHORT).show() }
-        fun adjustOpacity() { BrushToolState.opacity = when { BrushToolState.opacity > .85f -> .65f; BrushToolState.opacity > .55f -> .35f; else -> 1f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Opacidade: ${(BrushToolState.opacity * 100).toInt()}%", Toast.LENGTH_SHORT).show() }
+        fun startPlayback() { if (document.duration <= 1) { Toast.makeText(this@MainActivity, "Adicione pelo menos 2 frames para reproduzir", Toast.LENGTH_SHORT).show(); return }; playing = true; lastPlaybackNanos = System.nanoTime(); playbackAccumulator = 0L; Choreographer.getInstance().postFrameCallback(this); refreshWorkspace(); invalidate() }
+        fun stopPlayback() { if (!playing) return; playing = false; Choreographer.getInstance().removeFrameCallback(this); lastPlaybackNanos = 0L; playbackAccumulator = 0L; refreshWorkspace(); invalidate() }
+        override fun doFrame(frameTimeNanos: Long) { if (!playing) return; if (lastPlaybackNanos == 0L) lastPlaybackNanos = frameTimeNanos; playbackAccumulator += (frameTimeNanos - lastPlaybackNanos).coerceAtLeast(0L); lastPlaybackNanos = frameTimeNanos; val frameDuration = 1_000_000_000L / document.fps.coerceIn(1, 120); while (playbackAccumulator >= frameDuration) { playbackAccumulator -= frameDuration; document.advancePlaybackFrame() }; invalidate(); refreshWorkspace(); Choreographer.getInstance().postFrameCallback(this) }
+        fun adjustFps(delta: Int) { document.fps = (document.fps + delta).coerceIn(1, 60); Toast.makeText(this@MainActivity, "FPS: ${document.fps}", Toast.LENGTH_SHORT).show(); invalidate(); refreshWorkspace() }
+        fun adjustSize() { BrushToolState.size = when { BrushToolState.size < 8f -> 12f; BrushToolState.size < 24f -> 32f; BrushToolState.size < 64f -> 72f; else -> 6f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Tamanho: ${BrushToolState.size.toInt()} px", Toast.LENGTH_SHORT).show(); refreshWorkspace() }
+        fun adjustOpacity() { BrushToolState.opacity = when { BrushToolState.opacity > .85f -> .65f; BrushToolState.opacity > .55f -> .35f; else -> 1f }; BrushToolState.save(this@MainActivity); Toast.makeText(this@MainActivity, "Opacidade: ${(BrushToolState.opacity * 100).toInt()}%", Toast.LENGTH_SHORT).show(); refreshWorkspace() }
         private fun blend(a: Int, b: Int, amount: Float): Int { val t = amount.coerceIn(0f,1f); return Color.rgb((Color.red(a)*(1f-t)+Color.red(b)*t).toInt(), (Color.green(a)*(1f-t)+Color.green(b)*t).toInt(), (Color.blue(a)*(1f-t)+Color.blue(b)*t).toInt()) }
     }
 }
