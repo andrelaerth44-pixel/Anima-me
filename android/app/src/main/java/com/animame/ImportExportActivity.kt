@@ -22,7 +22,8 @@ class ImportExportActivity : Activity() {
     private val PICK_VIDEO = 11
     private val SAVE_GIF = 20
     private val SAVE_MP4 = 21
-    private val SAVE_PNG = 22
+    private val SAVE_IMAGE = 22
+    private val SAVE_SEQUENCE = 23
     private lateinit var status: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,8 +66,8 @@ class ImportExportActivity : Activity() {
 
         root.addView(button("Importar imagens / sequência") { pickImages() })
         root.addView(button("Importar vídeo → sequência de frames") { pickVideo() })
-        root.addView(button("Exportar imagem PNG") { ifReady { save(SAVE_PNG, "anima-me-frame.png", "image/png") } })
-        root.addView(button("Exportar sequência PNG (ZIP)") { ifReady { save(SAVE_PNG, "anima-me-sequence.zip", "application/zip") } })
+        root.addView(button("Exportar imagem PNG") { ifReady { save(SAVE_IMAGE, "anima-me-frame.png", "image/png") } })
+        root.addView(button("Exportar sequência PNG (ZIP)") { ifReady { save(SAVE_SEQUENCE, "anima-me-sequence.zip", "application/zip") } })
         root.addView(button("Exportar GIF") { ifReady { save(SAVE_GIF, "anima-me.gif", "image/gif") } })
         root.addView(button("Exportar vídeo MP4 (H.264)") { ifReady { save(SAVE_MP4, "anima-me.mp4", "video/mp4") } })
         root.addView(button("Limpar sequência") { MediaSequenceStore.clear(); refresh() })
@@ -79,9 +80,8 @@ class ImportExportActivity : Activity() {
     }
 
     private fun ifReady(action: () -> Unit) {
-        if (MediaSequenceStore.count == 0) {
-            Toast.makeText(this, "Importa primeiro uma imagem ou sequência.", Toast.LENGTH_SHORT).show()
-        } else action()
+        if (MediaSequenceStore.count == 0) Toast.makeText(this, "Importa primeiro uma imagem ou sequência.", Toast.LENGTH_SHORT).show()
+        else action()
     }
 
     private fun pickImages() {
@@ -113,10 +113,8 @@ class ImportExportActivity : Activity() {
         when (requestCode) {
             PICK_IMAGES -> data?.let(::importImages)
             PICK_VIDEO -> importVideo(data?.data)
-            SAVE_PNG -> if (data?.data != null) {
-                if (data.data.toString().endsWith(".zip", ignoreCase = true)) exportPngZip(data.data)
-                else exportImage(data.data)
-            }
+            SAVE_IMAGE -> exportImage(data?.data)
+            SAVE_SEQUENCE -> exportPngZip(data?.data)
             SAVE_GIF -> exportGif(data?.data)
             SAVE_MP4 -> exportMp4(data?.data)
         }
@@ -125,11 +123,8 @@ class ImportExportActivity : Activity() {
     private fun importImages(data: Intent) {
         val uris = mutableListOf<Uri>()
         data.data?.let(uris::add)
-        data.clipData?.let { clip ->
-            for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri
-        }
-        val ordered = uris.distinct().sortedBy(::displayName)
-        val decoded = ordered.mapNotNull(::decode)
+        data.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri }
+        val decoded = uris.distinct().sortedBy(::displayName).mapNotNull(::decode)
         if (decoded.isNotEmpty()) {
             MediaSequenceStore.replace(decoded)
             refresh()
@@ -155,9 +150,7 @@ class ImportExportActivity : Activity() {
                 MediaSequenceStore.replace(frames)
                 refresh()
                 Toast.makeText(this, "Vídeo importado: ${frames.size} frames a ${fps} FPS", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "Não foi possível extrair frames.", Toast.LENGTH_SHORT).show()
-            }
+            } else Toast.makeText(this, "Não foi possível extrair frames.", Toast.LENGTH_SHORT).show()
         } catch (e: Throwable) {
             Toast.makeText(this, "Falha ao importar vídeo: ${e.message}", Toast.LENGTH_LONG).show()
         } finally {
@@ -210,9 +203,7 @@ class ImportExportActivity : Activity() {
 
     private fun decode(uri: Uri): Bitmap? = try {
         contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }?.let { scale(it, 1280) }
-    } catch (_: Throwable) {
-        null
-    }
+    } catch (_: Throwable) { null }
 
     private fun scale(bitmap: Bitmap, max: Int): Bitmap {
         val largest = maxOf(bitmap.width, bitmap.height)
