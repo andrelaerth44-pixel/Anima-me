@@ -1,0 +1,1 @@
+Android brush core added on branch copilot/add-liquify-tool. The repository branch currently contains the editor model and brush core; a Gradle Android project must be present before an APK can be produced.
