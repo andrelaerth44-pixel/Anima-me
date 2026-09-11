@@ -8,7 +8,7 @@ object BrushEngine {
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
         if (samples.isEmpty()) return emptyList()
-        val s = settings.normalized()
+        val s = BrushProfileResolver.resolve(settings).normalized()
         val rng = Random(seed xor s.id.hashCode().toLong())
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
@@ -27,21 +27,28 @@ object BrushEngine {
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
             val fade = strokeFade(p, samples, s)
             val materialSize = when (s.material) {
-                BrushMaterial.PENCIL, BrushMaterial.CHARCOAL, BrushMaterial.CHALK -> 0.92f + rng.nextFloat() * 0.16f
+                BrushMaterial.PENCIL, BrushMaterial.CHARCOAL, BrushMaterial.CHALK -> 0.9f + rng.nextFloat() * 0.18f
+                BrushMaterial.PASTEL, BrushMaterial.CRAYON -> 0.94f + rng.nextFloat() * 0.14f
                 BrushMaterial.WATERCOLOR, BrushMaterial.GOUACHE -> 1.0f + rng.nextFloat() * 0.08f
                 BrushMaterial.OIL, BrushMaterial.ACRYLIC -> 1.02f + rng.nextFloat() * 0.14f
                 BrushMaterial.AIRBRUSH -> 1.35f
-                BrushMaterial.PARTICLE, BrushMaterial.STAMP -> 0.9f + rng.nextFloat() * 0.3f
+                BrushMaterial.HAIR -> 0.78f + rng.nextFloat() * 0.22f
+                BrushMaterial.PARTICLE, BrushMaterial.STAMP, BrushMaterial.PLANT, BrushMaterial.GLITTER -> 0.82f + rng.nextFloat() * 0.36f
                 else -> 1f
             }
-            val size = s.size * pressureSize * speedSize * materialSize
+            val textureVariation = if (s.textureOpacity > 0f) {
+                1f - s.textureOpacity.coerceIn(0f, 1f) * (rng.nextFloat() * .45f)
+            } else 1f
+            val blurExpansion = 1f + s.blur.coerceIn(0f, 1f) * .65f
+            val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion
             val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade
             val materialAlpha = when (s.algorithm) {
-                BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.45f + pressure * 0.55f)
-                BrushAlgorithm.WATER -> baseAlpha * (0.55f + s.waterWetness.coerceIn(0f, 1f) * 0.45f)
-                BrushAlgorithm.DOUBLE -> baseAlpha
+                BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.4f + pressure * 0.6f)
+                BrushAlgorithm.WATER -> baseAlpha * (0.5f + s.waterWetness.coerceIn(0f, 1f) * 0.5f)
+                BrushAlgorithm.SMUDGE -> baseAlpha * .38f
+                BrushAlgorithm.PROCEDURAL -> baseAlpha * (0.72f + rng.nextFloat() * .28f)
+                BrushAlgorithm.DOUBLE, BrushAlgorithm.VECTOR, BrushAlgorithm.MONO, BrushAlgorithm.COLOR -> baseAlpha
                 BrushAlgorithm.ERASER -> 1f
-                else -> baseAlpha
             }
             val jitter = s.jitterPosition * size
             val jx = (rng.nextFloat() * 2f - 1f) * jitter
@@ -50,7 +57,7 @@ object BrushEngine {
             val sx = if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f
             val sy = if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f
             val rotation = s.initialAngle + (if (s.followRotation) atan2(dy, dx) else 0f) + s.rotationJitter * (rng.nextFloat() * 2f - 1f)
-            val spacing = max(.5f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
+            val spacing = max(.35f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
             distance += hypot(dx, dy)
             if (prev == null || distance >= spacing) {
                 out += Stamp(
@@ -86,7 +93,8 @@ object BrushEngine {
         if (samples.size < 3 || k == 0f) return samples
         return samples.mapIndexed { i, p ->
             if (i == 0 || i == samples.lastIndex) p else {
-                val a = samples[i - 1]; val b = samples[i + 1]
+                val a = samples[i - 1]
+                val b = samples[i + 1]
                 StrokeSample(lerp(p.x, (a.x + b.x) / 2f, k), lerp(p.y, (a.y + b.y) / 2f, k), p.pressure, p.timeMs)
             }
         }
