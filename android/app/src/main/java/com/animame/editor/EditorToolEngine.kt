@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.PointF
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /** Shared, document-level behavior for the professional editor tools. */
 class EditorToolEngine {
@@ -25,7 +24,7 @@ class EditorToolEngine {
     fun lassoSelect(frame: DrawingFrame, polygon: List<PointF>): Selection {
         if (polygon.size < 3) return Selection()
         return Selection(frame.strokes.filter { stroke ->
-            stroke.samples.any { pointInPolygon(PointF(point.x, point.y), polygon) }
+            stroke.samples.any { sample -> pointInPolygon(PointF(sample.x, sample.y), polygon) }
         }.map { it.id }.toSet())
     }
 
@@ -36,7 +35,7 @@ class EditorToolEngine {
         val s = sin(angle).toFloat()
         var changed = 0
         frame.strokes.forEach { stroke ->
-            if (!selection.contains(stroke)) return@forEach
+            if (!selection.contains(stroke) || stroke.samples.isEmpty()) return@forEach
             val cx = stroke.samples.map { it.x }.average().toFloat()
             val cy = stroke.samples.map { it.y }.average().toFloat()
             stroke.samples.forEachIndexed { i, p ->
@@ -53,7 +52,7 @@ class EditorToolEngine {
     }
 
     fun pickColor(bitmap: Bitmap, x: Float, y: Float): Int? {
-        if (bitmap.isRecycled) return null
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
         val ix = x.toInt().coerceIn(0, bitmap.width - 1)
         val iy = y.toInt().coerceIn(0, bitmap.height - 1)
         return bitmap.getPixel(ix, iy)
@@ -72,8 +71,9 @@ class EditorToolEngine {
         for (i in polygon.indices) {
             val a = polygon[i]
             val b = polygon[j]
+            val dy = b.y - a.y
             val intersects = (a.y > point.y) != (b.y > point.y) &&
-                point.x < (b.x - a.x) * (point.y - a.y) / ((b.y - a.y).takeUnless { it == 0f } ?: Float.MIN_VALUE) + a.x
+                point.x < (b.x - a.x) * (point.y - a.y) / (if (dy == 0f) Float.MIN_VALUE else dy) + a.x
             if (intersects) inside = !inside
             j = i
         }
