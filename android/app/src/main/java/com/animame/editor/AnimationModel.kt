@@ -87,6 +87,28 @@ data class AnimationDocument(
         if (layers.none { it.id == selectedLayerId }) selectedLayerId = layers.firstOrNull()?.id
     }
 
+    fun exposureAt(frame: Int, layerId: String? = selectedLayerId): Int =
+        layers.firstOrNull { it.id == layerId }?.frameAt(frame)?.exposure?.coerceAtLeast(1) ?: 1
+
+    fun setExposure(frame: Int, exposure: Int, layerId: String? = selectedLayerId) {
+        val layer = layers.firstOrNull { it.id == layerId } ?: return
+        layer.ensureFrame(frame).exposure = exposure.coerceIn(1, 120)
+    }
+
+    fun setPlaybackRange(start: Int, end: Int) {
+        val a = start.coerceIn(0, duration - 1)
+        val b = end.coerceIn(0, duration - 1)
+        playbackStart = minOf(a, b)
+        playbackEnd = maxOf(a, b)
+        currentFrame = currentFrame.coerceIn(playbackStart, playbackEnd)
+    }
+
+    fun advancePlaybackFrame(): Int {
+        if (duration <= 1) return currentFrame
+        currentFrame = if (currentFrame >= playbackEnd) playbackStart else currentFrame + 1
+        return currentFrame
+    }
+
     fun insertFrame(at: Int) {
         val index = at.coerceIn(0, duration)
         layers.forEach { layer ->
@@ -121,6 +143,7 @@ data class AnimationDocument(
         duration -= 1
         playbackEnd = duration - 1
         currentFrame = currentFrame.coerceIn(0, duration - 1)
+        normalize()
     }
 
     fun addLayer(name: String = "Layer ${layers.size + 1}"): AnimationLayer =
