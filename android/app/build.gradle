@@ -15,13 +15,8 @@ android {
     }
 
     buildTypes {
-        release {
-            minifyEnabled false
-            shrinkResources false
-        }
-        debug {
-            minifyEnabled false
-        }
+        release { minifyEnabled false; shrinkResources false }
+        debug { minifyEnabled false }
     }
 
     compileOptions {
@@ -30,8 +25,10 @@ android {
     }
 
     kotlin {
-        compilerOptions {
-            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-        }
+        compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17 }
     }
+}
+
+dependencies {
+    implementation 'com.google.zxing:core:3.5.3'
 }
