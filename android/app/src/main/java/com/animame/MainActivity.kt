@@ -145,6 +145,10 @@ class MainActivity : Activity() {
         private var lastPlaybackNanos = 0L
         private var playbackAccumulator = 0L
         private val viewport = EditorViewportState()
+        private var panPointerId = MotionEvent.INVALID_POINTER_ID
+        private var lastPanX = 0f
+        private var lastPanY = 0f
+        private var panActive = false
         var tool = Tool.BRUSH
 
         private val scaleDetector = ScaleGestureDetector(this@MainActivity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -233,16 +237,66 @@ class MainActivity : Activity() {
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
             if (playing || document.activeLayer.locked) return true
-            if (event.pointerCount >= 2) return true
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     if (event.y < dp(62) || event.y > height - dp(timelineHeightDp) - dp(8)) return false
-                    currentSamples.clear(); drawing = true; addSample(event); renderPreview(); invalidate(); return true
+                    panActive = false
+                    panPointerId = MotionEvent.INVALID_POINTER_ID
+                    currentSamples.clear()
+                    drawing = true
+                    addSample(event)
+                    renderPreview()
+                    invalidate()
+                    return true
                 }
-                MotionEvent.ACTION_MOVE -> { if (!drawing) return true; addSample(event); renderPreview(); invalidate(); return true }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount >= 2) {
+                        drawing = false
+                        currentSamples.clear()
+                        previewStamps = emptyList()
+                        panActive = true
+                        val index = event.actionIndex
+                        panPointerId = event.getPointerId(index)
+                        lastPanX = event.getX(index)
+                        lastPanY = event.getY(index)
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (panActive && event.pointerCount >= 2) {
+                        val index = event.findPointerIndex(panPointerId).takeIf { it >= 0 } ?: 0
+                        val x = event.getX(index)
+                        val y = event.getY(index)
+                        viewport.panBy(x - lastPanX, y - lastPanY)
+                        lastPanX = x
+                        lastPanY = y
+                        invalidate()
+                        return true
+                    }
+                    if (!drawing || event.pointerCount != 1) return true
+                    addSample(event)
+                    renderPreview()
+                    invalidate()
+                    return true
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (event.pointerCount <= 2) {
+                        panActive = false
+                        panPointerId = MotionEvent.INVALID_POINTER_ID
+                    }
+                    return true
+                }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (drawing && event.actionMasked == MotionEvent.ACTION_UP) commitStroke()
-                    drawing = false; currentSamples.clear(); previewStamps = emptyList(); invalidate(); refreshTimeline(); return true
+                    drawing = false
+                    panActive = false
+                    panPointerId = MotionEvent.INVALID_POINTER_ID
+                    currentSamples.clear()
+                    previewStamps = emptyList()
+                    invalidate()
+                    refreshTimeline()
+                    return true
                 }
             }
             return true
