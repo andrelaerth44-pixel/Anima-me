@@ -21,8 +21,8 @@ object BrushEngine {
             val speed = if (q == null) 0f else hypot(dx, dy) / dt.toFloat()
             val speed01 = (speed / 2f).coerceIn(0f, 1f)
             val pressure = p.pressure.coerceIn(0f, 1f)
-            val pressureSize = lerp(s.minSizeFactor, 1f, pressure * s.pressureSizeFactor.coerceIn(0f, 1f))
-            val pressureOpacity = lerp(s.minOpacity, 1f, pressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
+            val pressureSize = lerp(s.minSizeFactor, 1f, pressure.pow(s.pressureExponent.coerceIn(.1f, 4f)) * s.pressureSizeFactor.coerceIn(0f, 1f))
+            val pressureOpacity = lerp(s.minOpacity, 1f, pressure.pow(s.pressureExponent.coerceIn(.1f, 4f)) * s.pressureOpacityFactor.coerceIn(0f, 1f))
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
             val fade = strokeFade(p, samples, s)
@@ -39,9 +39,10 @@ object BrushEngine {
             val textureVariation = if (s.textureOpacity > 0f) {
                 1f - s.textureOpacity.coerceIn(0f, 1f) * (rng.nextFloat() * .45f)
             } else 1f
+            val grainVariation = if (s.textureGrain > 0f) 1f - s.textureGrain * rng.nextFloat() * .35f else 1f
             val blurExpansion = 1f + s.blur.coerceIn(0f, 1f) * .65f
-            val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion
-            val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade
+            val size = s.size * pressureSize * speedSize * materialSize * textureVariation * grainVariation * blurExpansion
+            val baseAlpha = s.opacity * s.flow.coerceIn(0f, 1f) * pressureOpacity * speedOpacity * fade
             val materialAlpha = when (s.algorithm) {
                 BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.4f + pressure * 0.6f)
                 BrushAlgorithm.WATER -> baseAlpha * (0.5f + s.waterWetness.coerceIn(0f, 1f) * 0.5f)
