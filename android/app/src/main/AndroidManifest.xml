@@ -7,24 +7,11 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <activity
-            android:name=".SettingsActivity"
-            android:screenOrientation="landscape"
-            android:exported="false" />
-        <activity
-            android:name=".BrushPickerActivity"
-            android:screenOrientation="landscape"
-            android:exported="false" />
-        <activity
-            android:name=".MainActivity"
-            android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="false" />
-        <activity
-            android:name=".ProjectHomeActivity"
-            android:screenOrientation="landscape"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+        <activity android:name=".SettingsActivity" android:screenOrientation="landscape" android:exported="false" />
+        <activity android:name=".ToolOptionsActivity" android:screenOrientation="landscape" android:exported="false" />
+        <activity android:name=".BrushPickerActivity" android:screenOrientation="landscape" android:exported="false" />
+        <activity android:name=".MainActivity" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="false" />
+        <activity android:name=".ProjectHomeActivity" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|keyboardHidden" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
