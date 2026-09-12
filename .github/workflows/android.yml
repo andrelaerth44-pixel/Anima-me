@@ -6,6 +6,7 @@ on:
       - "copilot/add-liquify-tool"
       - "feature/full-editor-theme"
       - "feature/roughanimator-flow-complete"
+      - "feature/selection-transform-tools"
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
