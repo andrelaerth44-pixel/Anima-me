@@ -1,5 +1,6 @@
 package com.animame
 
+import android.app.Activity
 import android.content.Context
 
 object ThemeColorStore {
@@ -17,6 +18,9 @@ object ThemeColorStore {
     const val MUTED = 0xFFA9C5E8.toInt()
 
     fun get(context: Context): Int {
+        if (context is Activity) {
+            context.window.decorView.post { IbisToolOverlay.install(context) }
+        }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val stored = prefs.getInt(KEY_ACCENT, DEFAULT)
         if (stored == LEGACY_DEFAULT) {
