@@ -21,11 +21,15 @@ object BrushEngine {
             val speed = if (q == null) 0f else hypot(dx, dy) / dt.toFloat()
             val speed01 = (speed / 2f).coerceIn(0f, 1f)
             val pressure = p.pressure.coerceIn(0f, 1f)
+            val tilt01 = (p.tilt / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
             val pressureSize = lerp(s.minSizeFactor, 1f, pressure * s.pressureSizeFactor.coerceIn(0f, 1f))
             val pressureOpacity = lerp(s.minOpacity, 1f, pressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
             val fade = strokeFade(p, samples, s)
+            val tiltSize = if (p.tilt > 0f && (s.material == BrushMaterial.PENCIL || s.material == BrushMaterial.CHARCOAL || s.material == BrushMaterial.CHALK || s.aspect != 1f)) {
+                1f + tilt01 * .9f
+            } else 1f
             val materialSize = when (s.material) {
                 BrushMaterial.PENCIL, BrushMaterial.CHARCOAL, BrushMaterial.CHALK -> 0.9f + rng.nextFloat() * 0.18f
                 BrushMaterial.PASTEL, BrushMaterial.CRAYON -> 0.94f + rng.nextFloat() * 0.14f
@@ -40,7 +44,7 @@ object BrushEngine {
                 1f - s.textureOpacity.coerceIn(0f, 1f) * (rng.nextFloat() * .45f)
             } else 1f
             val blurExpansion = 1f + s.blur.coerceIn(0f, 1f) * .65f
-            val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion
+            val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion * tiltSize
             val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade
             val materialAlpha = when (s.algorithm) {
                 BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.4f + pressure * 0.6f)
@@ -56,7 +60,11 @@ object BrushEngine {
             val scatter = s.scatterSize * size
             val sx = if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f
             val sy = if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f
-            val rotation = s.initialAngle + (if (s.followRotation) atan2(dy, dx) else 0f) + s.rotationJitter * (rng.nextFloat() * 2f - 1f)
+            val direction = if (dx != 0f || dy != 0f) atan2(dy, dx) else 0f
+            val rotation = s.initialAngle +
+                if (s.followRotation) direction else 0f +
+                if (p.orientation != 0f) p.orientation else 0f +
+                s.rotationJitter * (rng.nextFloat() * 2f - 1f)
             val spacing = max(.35f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
             distance += hypot(dx, dy)
             if (prev == null || distance >= spacing) {
@@ -95,7 +103,14 @@ object BrushEngine {
             if (i == 0 || i == samples.lastIndex) p else {
                 val a = samples[i - 1]
                 val b = samples[i + 1]
-                StrokeSample(lerp(p.x, (a.x + b.x) / 2f, k), lerp(p.y, (a.y + b.y) / 2f, k), p.pressure, p.timeMs)
+                StrokeSample(
+                    lerp(p.x, (a.x + b.x) / 2f, k),
+                    lerp(p.y, (a.y + b.y) / 2f, k),
+                    p.pressure,
+                    p.timeMs,
+                    p.tilt,
+                    p.orientation
+                )
             }
         }
     }
