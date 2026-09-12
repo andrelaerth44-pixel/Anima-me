@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.os.Bundle
 import android.view.Choreographer
 import android.view.MotionEvent
@@ -12,6 +13,7 @@ import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.Toast
 import com.animame.editor.AnimationDocument
@@ -21,6 +23,7 @@ import com.animame.editor.BrushDefaults
 import com.animame.editor.BrushEngine
 import com.animame.editor.DrawingFrame
 import com.animame.editor.EditorViewportState
+import com.animame.editor.SelectionTransformController
 import com.animame.editor.StrokeData
 import com.animame.editor.StrokeSample
 
@@ -28,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var editor: EditorSurface
     private lateinit var timeline: TimelinePanel
     private val timelineHeightDp = 250
+    private val toolBarHeightDp = 108
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,10 +60,13 @@ class MainActivity : Activity() {
         editor = EditorSurface()
         root.addView(editor, FrameLayout.LayoutParams(-1, -1))
 
+        val topRows = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.rgb(30, 34, 39))
+        }
         val top = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(6), dp(5), dp(6), dp(5))
-            setBackgroundColor(Color.rgb(30, 34, 39))
         }
         top.addView(button("Definições", 78) { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
         top.addView(button("Pincéis", 68) { startActivityForResult(Intent(this@MainActivity, BrushPickerActivity::class.java), 42) })
@@ -74,7 +81,36 @@ class MainActivity : Activity() {
         top.addView(button("Reproduzir", 82) { editor.togglePlayback() })
         top.addView(button("FPS -", 56) { editor.adjustFps(-1) })
         top.addView(button("FPS +", 56) { editor.adjustFps(1) })
-        root.addView(top, FrameLayout.LayoutParams(-1, dp(60)))
+        val topScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(top, HorizontalScrollView.LayoutParams(-2, dp(60)))
+        }
+        topRows.addView(topScroll, LinearLayout.LayoutParams(-1, dp(60)))
+
+        val selectionBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(6), dp(3), dp(6), dp(3))
+            setBackgroundColor(Color.rgb(24, 27, 31))
+        }
+        selectionBar.addView(button("Seleção", 70) { editor.setSelectionMode(SelectionTransformController.Mode.RECT_SELECT) })
+        selectionBar.addView(button("Laço", 58) { editor.setSelectionMode(SelectionTransformController.Mode.LASSO) })
+        selectionBar.addView(button("Tudo", 52) { editor.selectAll() })
+        selectionBar.addView(button("Transformar", 86) { editor.setSelectionMode(SelectionTransformController.Mode.TRANSFORM) })
+        selectionBar.addView(button("Mover", 58) { editor.nudgeSelection(0f, -12f) })
+        selectionBar.addView(button("Escala +", 66) { editor.scaleSelection(1.1f) })
+        selectionBar.addView(button("Escala -", 66) { editor.scaleSelection(.9090909f) })
+        selectionBar.addView(button("Rot +", 58) { editor.rotateSelection(15f) })
+        selectionBar.addView(button("Rot -", 58) { editor.rotateSelection(-15f) })
+        selectionBar.addView(button("Esp. H", 60) { editor.flipHorizontal() })
+        selectionBar.addView(button("Esp. V", 60) { editor.flipVertical() })
+        selectionBar.addView(button("Apagar", 62) { editor.deleteSelection() })
+        selectionBar.addView(button("Limpar", 62) { editor.clearSelection() })
+        val selectionScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(selectionBar, HorizontalScrollView.LayoutParams(-2, dp(48)))
+        }
+        topRows.addView(selectionScroll, LinearLayout.LayoutParams(-1, dp(48)))
+        root.addView(topRows, FrameLayout.LayoutParams(-1, dp(toolBarHeightDp)))
 
         timeline = TimelinePanel(
             this,
@@ -83,6 +119,7 @@ class MainActivity : Activity() {
                 editor.stopPlayback()
                 editor.selectLayer(layerId)
                 editor.document.currentFrame = frame.coerceIn(0, editor.document.duration - 1)
+                editor.clearSelection()
                 editor.invalidate()
                 refreshTimeline()
             },
@@ -104,7 +141,7 @@ class MainActivity : Activity() {
     }
 
     private fun refreshTimeline() { if (::timeline.isInitialized) timeline.refresh(ThemeColorStore.get(this)) }
-    private fun button(label: String, widthDp: Int, action: () -> Unit) = Button(this).apply { text = label; textSize = 9f; setOnClickListener { action() }; layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(50)) }
+    private fun button(label: String, widthDp: Int, action: () -> Unit) = Button(this).apply { text = label; textSize = 9f; setOnClickListener { action() }; layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(40)) }
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     private enum class Tool { BRUSH, ERASER }
 
@@ -125,9 +162,15 @@ class MainActivity : Activity() {
         private var lastPlaybackNanos = 0L
         private var playbackAccumulator = 0L
         private val viewport = EditorViewportState()
+        private val selection = SelectionTransformController()
         private val undo = ArrayDeque<List<StrokeData>>()
         private val redo = ArrayDeque<List<StrokeData>>()
+        private var lastModelX = 0f
+        private var lastModelY = 0f
+        private var editSnapshotTaken = false
         private val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f }
+        private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val bg = Paint(Paint.ANTI_ALIAS_FLAG)
         private val panel = Paint(Paint.ANTI_ALIAS_FLAG)
         private val paper = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -136,7 +179,17 @@ class MainActivity : Activity() {
         var tool = Tool.BRUSH
 
         private val scaleDetector = ScaleGestureDetector(this@MainActivity, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-            override fun onScale(detector: ScaleGestureDetector): Boolean { viewport.zoomAt(detector.scaleFactor, detector.focusX, detector.focusY); invalidate(); return true }
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                if (selection.mode == SelectionTransformController.Mode.TRANSFORM && selection.selectedStrokeIds.isNotEmpty()) {
+                    takeEditSnapshot()
+                    selection.scale(currentStrokes(), detector.scaleFactor, modelX(detector.focusX), modelY(detector.focusY))
+                    invalidate()
+                } else {
+                    viewport.zoomAt(detector.scaleFactor, detector.focusX, detector.focusY)
+                    invalidate()
+                }
+                return true
+            }
         })
 
         init { document.normalize(); refreshTheme(); isFocusable = true }
@@ -146,11 +199,13 @@ class MainActivity : Activity() {
             bg.color = Color.rgb(18, 20, 23)
             panel.color = blend(accent, Color.rgb(30, 34, 39), .82f)
             paper.color = document.backgroundColor
+            selectionPaint.color = accent
+            handlePaint.color = Color.WHITE
         }
 
         override fun onDraw(c: Canvas) {
             c.drawColor(bg.color)
-            val top = dp(60).toFloat(); val bottom = height - dp(timelineHeightDp).toFloat()
+            val top = dp(toolBarHeightDp).toFloat(); val bottom = height - dp(timelineHeightDp).toFloat()
             c.drawRect(0f, 0f, width.toFloat(), top, panel)
             c.save(); c.clipRect(0f, top, width.toFloat(), bottom)
             c.translate(viewport.offsetX, viewport.offsetY); c.scale(viewport.scale, viewport.scale)
@@ -158,11 +213,15 @@ class MainActivity : Activity() {
             if (!document.transparentBackground) c.drawRect(left, top + dp(14), right, bottom - dp(14), paper)
             drawOnion(c); drawDocument(c)
             if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, BrushToolState.color, 1f)
+            drawSelectionOverlay(c)
             c.restore()
             c.drawText("ANIMA-ME", dp(76).toFloat(), dp(37).toFloat(), title)
             c.drawText("${document.name} | Frame ${document.currentFrame + 1}/${document.duration} | ${document.fps} FPS | ${document.width} × ${document.height} | Zoom ${(viewport.scale * 100).toInt()}%", dp(76).toFloat(), dp(53).toFloat(), info)
+            c.drawText(if (selection.selectedStrokeIds.isEmpty()) "Sem seleção" else "${selection.selectedStrokeIds.size} traço(s) selecionado(s)", dp(76).toFloat(), dp(95).toFloat(), info)
             c.drawText(if (playing) "REPRODUZINDO" else document.activeLayer.name, (width - dp(170)).toFloat(), dp(37).toFloat(), info)
         }
+
+        private fun currentStrokes(): MutableList<StrokeData> = document.activeLayer.ensureFrame(document.currentFrame).strokes
 
         private fun drawingForFrame(layer: AnimationLayer, frame: Int): DrawingFrame? {
             layer.frameAt(frame)?.let { return it }
@@ -200,14 +259,82 @@ class MainActivity : Activity() {
             }
         }
 
+        private fun drawSelectionOverlay(c: Canvas) {
+            if (!selection.marqueeBounds.isEmpty) {
+                selectionPaint.color = accent
+                c.drawRect(selection.marqueeBounds, selectionPaint)
+            }
+            if (selection.lassoPoints.size > 1 && selection.isDragging) {
+                selectionPaint.color = accent
+                for (i in 1 until selection.lassoPoints.size) {
+                    val a = selection.lassoPoints[i - 1]; val b = selection.lassoPoints[i]
+                    c.drawLine(a.first, a.second, b.first, b.second, selectionPaint)
+                }
+            }
+            if (!selection.selectionBounds.isEmpty && selection.selectedStrokeIds.isNotEmpty()) {
+                val r = selection.selectionBounds
+                selectionPaint.color = accent
+                selectionPaint.strokeWidth = 2.5f / viewport.scale.coerceAtLeast(.1f)
+                c.drawRect(r, selectionPaint)
+                val s = 8f / viewport.scale.coerceAtLeast(.1f)
+                listOf(r.left to r.top, r.right to r.top, r.left to r.bottom, r.right to r.bottom).forEach { (x, y) -> c.drawCircle(x, y, s, handlePaint) }
+                c.drawCircle(r.centerX(), r.centerY(), 5f / viewport.scale.coerceAtLeast(.1f), handlePaint)
+            }
+        }
+
         override fun onTouchEvent(event: MotionEvent): Boolean {
             scaleDetector.onTouchEvent(event)
-            if (playing || document.activeLayer.locked || event.pointerCount >= 2) return true
+            if (playing || document.activeLayer.locked) return true
+            if (event.y < dp(toolBarHeightDp) || event.y > height - dp(timelineHeightDp) - dp(6)) return false
+            if (selection.mode == SelectionTransformController.Mode.RECT_SELECT) return handleRectSelection(event)
+            if (selection.mode == SelectionTransformController.Mode.LASSO) return handleLassoSelection(event)
+            if (selection.mode == SelectionTransformController.Mode.TRANSFORM && selection.selectedStrokeIds.isNotEmpty()) return handleTransform(event)
+            if (event.pointerCount >= 2) return true
+            return handleDrawing(event)
+        }
+
+        private fun handleRectSelection(event: MotionEvent): Boolean {
+            val x = modelX(event.x); val y = modelY(event.y)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { selection.beginRect(x, y); invalidate(); return true }
+                MotionEvent.ACTION_MOVE -> { selection.updateRect(x, y); invalidate(); return true }
+                MotionEvent.ACTION_UP -> { selection.finishRect(currentStrokes()); invalidate(); return true }
+                MotionEvent.ACTION_CANCEL -> { selection.clear(); invalidate(); return true }
+            }
+            return true
+        }
+
+        private fun handleLassoSelection(event: MotionEvent): Boolean {
+            val x = modelX(event.x); val y = modelY(event.y)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { selection.beginLasso(x, y); invalidate(); return true }
+                MotionEvent.ACTION_MOVE -> { selection.updateLasso(x, y); invalidate(); return true }
+                MotionEvent.ACTION_UP -> { selection.finishLasso(currentStrokes()); invalidate(); return true }
+                MotionEvent.ACTION_CANCEL -> { selection.clear(); invalidate(); return true }
+            }
+            return true
+        }
+
+        private fun handleTransform(event: MotionEvent): Boolean {
+            val x = modelX(event.x); val y = modelY(event.y)
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (event.y < dp(60) || event.y > height - dp(timelineHeightDp) - dp(6)) return false
-                    currentSamples.clear(); drawing = true; addSample(event); renderPreview(); invalidate(); return true
+                    if (!selection.selectionBounds.contains(x, y)) { selection.clear(); invalidate(); return true }
+                    editSnapshotTaken = false; takeEditSnapshot(); lastModelX = x; lastModelY = y; return true
                 }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount >= 2) return true
+                    selection.move(currentStrokes(), x - lastModelX, y - lastModelY)
+                    lastModelX = x; lastModelY = y; invalidate(); return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { editSnapshotTaken = false; invalidate(); return true }
+            }
+            return true
+        }
+
+        private fun handleDrawing(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { currentSamples.clear(); drawing = true; addSample(event); renderPreview(); invalidate(); return true }
                 MotionEvent.ACTION_MOVE -> { if (!drawing) return true; addSample(event); renderPreview(); invalidate(); return true }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (drawing && event.actionMasked == MotionEvent.ACTION_UP) commitStroke()
@@ -229,12 +356,10 @@ class MainActivity : Activity() {
             return base.copy(size = BrushToolState.size, opacity = BrushToolState.opacity, flow = BrushToolState.flow, spacing = BrushToolState.spacing).normalized()
         }
 
-        private fun renderPreview() {
-            previewStamps = BrushEngine.stamps(BrushEngine.smooth(currentSamples, BrushToolState.smoothing), settings(), document.currentFrame.toLong())
-        }
-
+        private fun renderPreview() { previewStamps = BrushEngine.stamps(BrushEngine.smooth(currentSamples, BrushToolState.smoothing), settings(), document.currentFrame.toLong()) }
         private fun copyStrokes(): List<StrokeData> = document.activeLayer.frameAt(document.currentFrame)?.strokes?.map { s -> s.copy(samples = s.samples.map { it.copy() }.toMutableList()) } ?: emptyList()
-        private fun restoreStrokes(snapshot: List<StrokeData>) { val frame = document.activeLayer.ensureFrame(document.currentFrame); frame.strokes.clear(); snapshot.forEach { frame.strokes += it.copy(samples = it.samples.map { p -> p.copy() }.toMutableList()) }; invalidate(); refreshTimeline() }
+        private fun restoreStrokes(snapshot: List<StrokeData>) { val frame = document.activeLayer.ensureFrame(document.currentFrame); frame.strokes.clear(); snapshot.forEach { frame.strokes += it.copy(samples = it.samples.map { p -> p.copy() }.toMutableList()) }; selection.recalculateBounds(frame.strokes); invalidate(); refreshTimeline() }
+        private fun takeEditSnapshot() { if (editSnapshotTaken) return; undo.addLast(copyStrokes()); redo.clear(); editSnapshotTaken = true }
         private fun commitStroke() {
             if (currentSamples.isEmpty()) return
             undo.addLast(copyStrokes()); redo.clear()
@@ -247,12 +372,21 @@ class MainActivity : Activity() {
 
         fun undo() { if (undo.isEmpty()) return; redo.addLast(copyStrokes()); restoreStrokes(undo.removeLast()) }
         fun redo() { if (redo.isEmpty()) return; undo.addLast(copyStrokes()); restoreStrokes(redo.removeLast()) }
-        fun selectLayer(id: String) { document.selectLayer(id); undo.clear(); redo.clear(); invalidate(); refreshTimeline() }
+        fun selectLayer(id: String) { document.selectLayer(id); selection.clear(); undo.clear(); redo.clear(); invalidate(); refreshTimeline() }
         fun zoom(f: Float) { viewport.zoomAt(f, width * .5f, height * .5f); invalidate() }
         fun resetViewport() { viewport.reset(); invalidate() }
-        fun addLayer() { document.addLayer(); undo.clear(); redo.clear(); invalidate(); refreshTimeline() }
+        fun addLayer() { document.addLayer(); selection.clear(); undo.clear(); redo.clear(); invalidate(); refreshTimeline() }
+        fun setSelectionMode(mode: SelectionTransformController.Mode) { selection.setMode(mode); invalidate() }
+        fun selectAll() { selection.selectAll(currentStrokes()); invalidate() }
+        fun clearSelection() { selection.clear(); invalidate() }
+        fun scaleSelection(factor: Float) { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.scale(currentStrokes(), factor); editSnapshotTaken = false; invalidate() }
+        fun rotateSelection(degrees: Float) { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.rotate(currentStrokes(), degrees); editSnapshotTaken = false; invalidate() }
+        fun flipHorizontal() { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.flipHorizontal(currentStrokes()); editSnapshotTaken = false; invalidate() }
+        fun flipVertical() { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.flipVertical(currentStrokes()); editSnapshotTaken = false; invalidate() }
+        fun nudgeSelection(dx: Float, dy: Float) { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.move(currentStrokes(), if (dx == 0f) 0f else dx, if (dy == 0f) -12f else dy); editSnapshotTaken = false; invalidate() }
+        fun deleteSelection() { if (selection.selectedStrokeIds.isEmpty()) return; editSnapshotTaken = false; takeEditSnapshot(); selection.deleteSelected(currentStrokes()); editSnapshotTaken = false; invalidate(); refreshTimeline() }
         fun togglePlayback() { if (playing) stopPlayback() else startPlayback() }
-        fun startPlayback() { if (document.duration <= 1) { Toast.makeText(this@MainActivity, "Adicione pelo menos 2 frames para reproduzir", Toast.LENGTH_SHORT).show(); return }; playing = true; lastPlaybackNanos = System.nanoTime(); playbackAccumulator = 0L; Choreographer.getInstance().postFrameCallback(this); invalidate(); refreshTimeline() }
+        fun startPlayback() { if (document.duration <= 1) { Toast.makeText(this@MainActivity, "Adicione pelo menos 2 frames para reproduzir", Toast.LENGTH_SHORT).show(); return }; selection.clear(); playing = true; lastPlaybackNanos = System.nanoTime(); playbackAccumulator = 0L; Choreographer.getInstance().postFrameCallback(this); invalidate(); refreshTimeline() }
         fun stopPlayback() { if (!playing) return; playing = false; Choreographer.getInstance().removeFrameCallback(this); lastPlaybackNanos = 0L; playbackAccumulator = 0L; invalidate(); refreshTimeline() }
         override fun doFrame(t: Long) { if (!playing) return; if (lastPlaybackNanos == 0L) lastPlaybackNanos = t; playbackAccumulator += (t - lastPlaybackNanos).coerceAtLeast(0L); lastPlaybackNanos = t; val frameNs = 1_000_000_000L / document.fps.coerceIn(1, 120); while (playbackAccumulator >= frameNs) { playbackAccumulator -= frameNs; document.advancePlaybackFrame() }; invalidate(); refreshTimeline(); Choreographer.getInstance().postFrameCallback(this) }
         fun adjustFps(delta: Int) { document.fps = (document.fps + delta).coerceIn(1, 60); document.normalize(); invalidate(); refreshTimeline() }
