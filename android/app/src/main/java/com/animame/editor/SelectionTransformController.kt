@@ -28,6 +28,13 @@ class SelectionTransformController {
     var rotation = 0f
         private set
 
+    fun activateLasso() {
+        mode = Mode.LASSO
+        points.clear()
+        path.reset()
+        bounds.setEmpty()
+    }
+
     fun beginLasso(x: Float, y: Float) {
         mode = Mode.LASSO
         points.clear()
