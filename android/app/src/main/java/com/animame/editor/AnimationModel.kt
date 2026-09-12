@@ -49,6 +49,24 @@ data class AnimationCamera(var x: Float = 0f, var y: Float = 0f, var scale: Floa
 data class CameraKeyframe(val frame: Int, val camera: AnimationCamera)
 data class TimelineSelection(var layerId: String? = null, var startFrame: Int = 0, var endFrame: Int = 0)
 
+data class AnimationDocumentSnapshot(
+    val name: String,
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val duration: Int,
+    val currentFrame: Int,
+    val playbackStart: Int,
+    val playbackEnd: Int,
+    val backgroundColor: Int,
+    val transparentBackground: Boolean,
+    val layers: List<AnimationLayer>,
+    val cameraKeys: List<CameraKeyframe>,
+    val onion: OnionSkinSettings,
+    val camera: AnimationCamera,
+    val selectedLayerId: String?
+)
+
 data class AnimationDocument(
     var name: String = "Untitled",
     var width: Int = 1280,
@@ -101,6 +119,60 @@ data class AnimationDocument(
         onion.opacity = onion.opacity.coerceIn(0, 100)
         if (layers.none { it.id == selectedLayerId && !it.isBackground }) selectedLayerId = layers.firstOrNull { !it.isBackground }?.id
         if (layers.none { it.isBackground }) layers.add(AnimationLayer(name = "Background", locked = true, isBackground = true))
+    }
+
+    fun snapshot(): AnimationDocumentSnapshot = AnimationDocumentSnapshot(
+        name, width, height, fps, duration, currentFrame, playbackStart, playbackEnd,
+        backgroundColor, transparentBackground,
+        layers.map { layer ->
+            AnimationLayer(layer.id, layer.name, layer.visible, layer.locked, layer.opacity, layer.blendMode, layer.isBackground,
+                linkedMapOf<Int, DrawingFrame>().apply {
+                    layer.frames.forEach { (frame, drawing) ->
+                        put(frame, DrawingFrame(drawing.id, drawing.strokes.map { stroke ->
+                            stroke.copy(samples = stroke.samples.map { it.copy() }.toMutableList())
+                        }.toMutableList(), drawing.exposure))
+                    }
+                })
+        },
+        cameraKeys.map { CameraKeyframe(it.frame, it.camera.copy()) },
+        onion.copy(), camera.copy(), selectedLayerId
+    )
+
+    fun restore(snapshot: AnimationDocumentSnapshot) {
+        name = snapshot.name
+        width = snapshot.width
+        height = snapshot.height
+        fps = snapshot.fps
+        duration = snapshot.duration
+        currentFrame = snapshot.currentFrame
+        playbackStart = snapshot.playbackStart
+        playbackEnd = snapshot.playbackEnd
+        backgroundColor = snapshot.backgroundColor
+        transparentBackground = snapshot.transparentBackground
+        layers.clear()
+        snapshot.layers.forEach { layer ->
+            val restored = AnimationLayer(layer.id, layer.name, layer.visible, layer.locked, layer.opacity, layer.blendMode, layer.isBackground)
+            layer.frames.forEach { (frame, drawing) ->
+                restored.frames[frame] = DrawingFrame(drawing.id, drawing.strokes.map { stroke ->
+                    stroke.copy(samples = stroke.samples.map { it.copy() }.toMutableList())
+                }.toMutableList(), drawing.exposure)
+            }
+            layers += restored
+        }
+        cameraKeys.clear()
+        cameraKeys += snapshot.cameraKeys.map { CameraKeyframe(it.frame, it.camera.copy()) }
+        onion.enabled = snapshot.onion.enabled
+        onion.previousCount = snapshot.onion.previousCount
+        onion.nextCount = snapshot.onion.nextCount
+        onion.opacity = snapshot.onion.opacity
+        onion.tintPrevious = snapshot.onion.tintPrevious
+        onion.tintNext = snapshot.onion.tintNext
+        camera.x = snapshot.camera.x
+        camera.y = snapshot.camera.y
+        camera.scale = snapshot.camera.scale
+        camera.rotation = snapshot.camera.rotation
+        selectedLayerId = snapshot.selectedLayerId
+        normalize()
     }
 
     fun exposureAt(frame: Int, layerId: String? = selectedLayerId): Int =
