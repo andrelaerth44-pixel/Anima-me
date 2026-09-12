@@ -19,17 +19,21 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import com.animame.editor.AnimationDocument
+import com.animame.editor.AnimationDocumentSnapshot
 import com.animame.editor.AnimationLayer
 import com.animame.editor.BrushCatalog
 import com.animame.editor.BrushDefaults
 import com.animame.editor.BrushEngine
 import com.animame.editor.DrawingFrame
 import com.animame.editor.EditorViewportState
+import com.animame.editor.HistoryRegistry
 import com.animame.editor.SelectionTransformController
 import com.animame.editor.StrokeData
 import com.animame.editor.StrokeSample
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.sin
 
 class MainActivity : Activity() {
     private lateinit var editor: EditorSurface
@@ -190,6 +194,7 @@ class MainActivity : Activity() {
 
     private inner class EditorSurface : View(this@MainActivity), Choreographer.FrameCallback {
         val document = AnimationDocument(name = intent.getStringExtra("project_name") ?: "Minha animação", width = intent.getIntExtra("project_width",1280), height = intent.getIntExtra("project_height",720), fps = intent.getIntExtra("project_fps",24), duration = intent.getIntExtra("project_duration",1).coerceAtLeast(1), transparentBackground = intent.getBooleanExtra("project_transparent",false))
+        private val history get() = HistoryRegistry.forDocument(document)
         private val currentSamples = mutableListOf<StrokeSample>()
         private var previewStamps = emptyList<BrushEngine.Stamp>()
         private var accent = ThemeColorStore.DEFAULT
@@ -210,6 +215,7 @@ class MainActivity : Activity() {
         private var lastTransformAngle = 0f
         private var transformPivotX = 0f
         private var transformPivotY = 0f
+        private var transformHistoryBefore: AnimationDocumentSnapshot? = null
         private var panPointerId = MotionEvent.INVALID_POINTER_ID
         private var lastPanX = 0f
         private var lastPanY = 0f
@@ -258,7 +264,7 @@ class MainActivity : Activity() {
 
         fun beginLassoMode(){ stopPlayback(); clearSelection(); selection.beginLasso(0f,0f); selection.clear(); lassoDrawing=false; tool=Tool.BRUSH; invalidate(); Toast.makeText(this@MainActivity,"Laço: contorne o desenho no canvas",Toast.LENGTH_SHORT).show() }
         fun beginTransformMode(){ if(selectedStrokeIds.isEmpty()){Toast.makeText(this@MainActivity,"Faça uma seleção primeiro",Toast.LENGTH_SHORT).show();return}; selection.beginMove(); transformGesture=false; invalidate(); Toast.makeText(this@MainActivity,"Mover/Transformar: arraste ou use dois dedos",Toast.LENGTH_SHORT).show() }
-        fun clearSelection(){selection.clear();selectedStrokeIds.clear();lassoDrawing=false;transformGesture=false;invalidate()}
+        fun clearSelection(){selection.clear();selectedStrokeIds.clear();lassoDrawing=false;transformGesture=false;transformHistoryBefore=null;invalidate()}
 
         override fun onTouchEvent(event:MotionEvent):Boolean{
             if(selection.mode==SelectionTransformController.Mode.LASSO||selection.mode==SelectionTransformController.Mode.MOVE||selection.mode==SelectionTransformController.Mode.TRANSFORM)return handleSelectionTouch(event)
@@ -274,7 +280,7 @@ class MainActivity : Activity() {
         }
 
         private fun handleSelectionTouch(event:MotionEvent):Boolean{
-            if(event.actionMasked==MotionEvent.ACTION_CANCEL){clearSelection();return true}
+            if(event.actionMasked==MotionEvent.ACTION_CANCEL){cancelTransformHistory();clearSelection();return true}
             if(selection.mode==SelectionTransformController.Mode.LASSO){
                 when(event.actionMasked){
                     MotionEvent.ACTION_DOWN->{selection.beginLasso(modelX(event.x),modelY(event.y));lassoDrawing=true;invalidate();return true}
@@ -282,27 +288,40 @@ class MainActivity : Activity() {
                     MotionEvent.ACTION_UP->{if(lassoDrawing){selection.addLassoPoint(modelX(event.x),modelY(event.y));if(selection.finishLasso())selectStrokesInsideLasso();lassoDrawing=false;invalidate()};return true}
                 };return true
             }
-            if(event.actionMasked==MotionEvent.ACTION_DOWN){val mx=modelX(event.x);val my=modelY(event.y);if(selection.bounds.contains(mx,my)){transformGesture=true;transformPointerId=event.getPointerId(0);lastTransformX=mx;lastTransformY=my;return true};clearSelection();return true}
-            if(event.actionMasked==MotionEvent.ACTION_POINTER_DOWN&&event.pointerCount>=2){transformGesture=true;lastTransformDistance=distance(event);lastTransformAngle=angle(event);transformPivotX=modelX((event.getX(0)+event.getX(1))/2f);transformPivotY=modelY((event.getY(0)+event.getY(1))/2f);return true}
-            if(event.actionMasked==MotionEvent.ACTION_MOVE&&transformGesture){if(event.pointerCount>=2){val d=distance(event);val a=angle(event);if(lastTransformDistance>0f)applyScale(d/lastTransformDistance,transformPivotX,transformPivotY);selection.rotateBy(a-lastTransformAngle);lastTransformDistance=d;lastTransformAngle=a;invalidate();return true};val i=event.findPointerIndex(transformPointerId).takeIf{it>=0}?:0;val mx=modelX(event.getX(i));val my=modelY(event.getY(i));applyTranslation(mx-lastTransformX,my-lastTransformY);lastTransformX=mx;lastTransformY=my;invalidate();return true}
-            if(event.actionMasked==MotionEvent.ACTION_UP||event.actionMasked==MotionEvent.ACTION_POINTER_UP){transformGesture=false;transformPointerId=MotionEvent.INVALID_POINTER_ID;return true}
+            if(event.actionMasked==MotionEvent.ACTION_DOWN){val mx=modelX(event.x);val my=modelY(event.y);if(selection.bounds.contains(mx,my)){beginTransformHistory();transformGesture=true;transformPointerId=event.getPointerId(0);lastTransformX=mx;lastTransformY=my;return true};clearSelection();return true}
+            if(event.actionMasked==MotionEvent.ACTION_POINTER_DOWN&&event.pointerCount>=2){beginTransformHistory();transformGesture=true;lastTransformDistance=distance(event);lastTransformAngle=angle(event);transformPivotX=modelX((event.getX(0)+event.getX(1))/2f);transformPivotY=modelY((event.getY(0)+event.getY(1))/2f);return true}
+            if(event.actionMasked==MotionEvent.ACTION_MOVE&&transformGesture){if(event.pointerCount>=2){val d=distance(event);val a=angle(event);if(lastTransformDistance>0f)applyScale(d/lastTransformDistance,transformPivotX,transformPivotY);applyRotation(a-lastTransformAngle,transformPivotX,transformPivotY);lastTransformDistance=d;lastTransformAngle=a;invalidate();return true};val i=event.findPointerIndex(transformPointerId).takeIf{it>=0}?:0;val mx=modelX(event.getX(i));val my=modelY(event.getY(i));applyTranslation(mx-lastTransformX,my-lastTransformY);lastTransformX=mx;lastTransformY=my;invalidate();return true}
+            if(event.actionMasked==MotionEvent.ACTION_UP){finishTransformHistory();transformGesture=false;transformPointerId=MotionEvent.INVALID_POINTER_ID;return true}
             return true
         }
 
-        private fun selectStrokesInsideLasso(){selectedStrokeIds.clear();val frame=document.activeLayer.frameAt(document.currentFrame)?:return;val region=Region();val b=selection.bounds;val rect=android.graphics.Rect(b.left.toInt(),b.top.toInt(),b.right.toInt()+1,b.bottom.toInt()+1);region.setPath(selection.path,Region(rect));frame.strokes.forEach{stroke->if(stroke.samples.any{s->region.contains(s.x.toInt(),s.y.toInt())})selectedStrokeIds+=stroke.id};if(selectedStrokeIds.isEmpty())Toast.makeText(this@MainActivity,"Nenhum traço encontrado na seleção",Toast.LENGTH_SHORT).show()}
+        private fun beginTransformHistory(){if(transformHistoryBefore==null)transformHistoryBefore=document.snapshot()}
+        private fun finishTransformHistory(){val before=transformHistoryBefore?:return;history.record(before,document.snapshot(),"Transformar seleção");transformHistoryBefore=null;refreshWorkspace()}
+        private fun cancelTransformHistory(){val before=transformHistoryBefore?:return;document.restore(before);transformHistoryBefore=null;refreshWorkspace()}
+
+        private fun selectStrokesInsideLasso(){selectedStrokeIds.clear();val frame=document.activeLayer.frameAt(document.currentFrame)?:return;val region=android.graphics.Region();val b=selection.bounds;val rect=android.graphics.Rect(b.left.toInt(),b.top.toInt(),b.right.toInt()+1,b.bottom.toInt()+1);region.setPath(selection.path,android.graphics.Region(rect));frame.strokes.forEach{stroke->if(stroke.samples.any{s->region.contains(s.x.toInt(),s.y.toInt())})selectedStrokeIds+=stroke.id};if(selectedStrokeIds.isEmpty())Toast.makeText(this@MainActivity,"Nenhum traço encontrado na seleção",Toast.LENGTH_SHORT).show()}
         private fun selectedStrokes():List<StrokeData>{val frame=document.activeLayer.frameAt(document.currentFrame)?:return emptyList();return frame.strokes.filter{selectedStrokeIds.contains(it.id)}}
         private fun applyTranslation(dx:Float,dy:Float){selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];stroke.samples[i]=s.copy(x=s.x+dx,y=s.y+dy)}};selection.moveBy(dx,dy)}
         private fun applyScale(f:Float,pivotX:Float,pivotY:Float){val factor=f.coerceIn(.2f,5f);selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];stroke.samples[i]=s.copy(x=pivotX+(s.x-pivotX)*factor,y=pivotY+(s.y-pivotY)*factor)}};selection.scaleBy(factor,pivotX,pivotY)}
+        private fun applyRotation(degrees:Float,pivotX:Float,pivotY:Float){if(degrees==0f)return;val r=Math.toRadians(degrees.toDouble());val co=cos(r).toFloat();val si=sin(r).toFloat();selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];val dx=s.x-pivotX;val dy=s.y-pivotY;stroke.samples[i]=s.copy(x=pivotX+dx*co-dy*si,y=pivotY+dx*si+dy*co)}};selection.rotateBy(degrees)}
         private fun distance(e:MotionEvent)=hypot(e.getX(1)-e.getX(0),e.getY(1)-e.getY(0));private fun angle(e:MotionEvent)=Math.toDegrees(atan2((e.getY(1)-e.getY(0)).toDouble(),(e.getX(1)-e.getX(0)).toDouble())).toFloat();private fun modelX(x:Float)=(x-viewport.offsetX)/viewport.scale;private fun modelY(y:Float)=(y-viewport.offsetY)/viewport.scale
         private fun addSample(event:MotionEvent){val pressure=if(BrushToolState.pressure)event.pressure.coerceIn(.05f,1f)else 1f;currentSamples+=StrokeSample(modelX(event.x),modelY(event.y),pressure,event.eventTime)}
         private fun renderPreview(){val id=if(tool==Tool.ERASER)"eraser"else BrushToolState.brushId;val base=if(tool==Tool.ERASER)BrushDefaults.forPreset("eraser")else BrushCatalog.settings(id);val settings=base.copy(size=BrushToolState.size,opacity=BrushToolState.opacity,spacing=BrushToolState.spacing);previewStamps=BrushEngine.stamps(BrushEngine.smooth(currentSamples,BrushToolState.smoothing),settings,document.currentFrame.toLong())}
-        private fun commitStroke(){if(currentSamples.isEmpty())return;val frame=document.activeLayer.ensureFrame(document.currentFrame);val settings=if(tool==Tool.ERASER)BrushDefaults.forPreset("eraser").copy(size=BrushToolState.size,opacity=BrushToolState.opacity)else BrushCatalog.settings(BrushToolState.brushId).copy(size=BrushToolState.size,opacity=BrushToolState.opacity,spacing=BrushToolState.spacing);val color=if(tool==Tool.ERASER)Color.WHITE else accent;frame.strokes+=StrokeData(brushId=settings.id,color=color,size=BrushToolState.size,opacity=BrushToolState.opacity,settings=settings,samples=currentSamples.map{it.copy()}.toMutableList());BrushToolState.save(this@MainActivity)}
+        private fun commitStroke(){if(currentSamples.isEmpty())return;val before=document.snapshot();val frame=document.activeLayer.ensureFrame(document.currentFrame);val settings=if(tool==Tool.ERASER)BrushDefaults.forPreset("eraser").copy(size=BrushToolState.size,opacity=BrushToolState.opacity)else BrushCatalog.settings(BrushToolState.brushId).copy(size=BrushToolState.size,opacity=BrushToolState.opacity,spacing=BrushToolState.spacing);val color=if(tool==Tool.ERASER)Color.WHITE else accent;frame.strokes+=StrokeData(brushId=settings.id,color=color,size=BrushToolState.size,opacity=BrushToolState.opacity,settings=settings,samples=currentSamples.map{it.copy()}.toMutableList());history.record(before,document.snapshot(),"Desenhar traço");BrushToolState.save(this@MainActivity)}
         private fun cancelStroke(){currentSamples.clear();cancelStrokeState();invalidate()};private fun cancelStrokeState(){drawing=false;panActive=false;panPointerId=MotionEvent.INVALID_POINTER_ID;previewStamps=emptyList();invalidate()}
-        fun selectLayer(id:String){document.selectLayer(id);invalidate()};fun zoom(factor:Float){viewport.zoomAt(factor,width*.5f,height*.5f);invalidate()};fun resetViewport(){viewport.reset();invalidate()};fun insertFrame(){stopPlayback();document.insertFrame(document.currentFrame);invalidate();refreshWorkspace()};fun duplicateFrame(){stopPlayback();document.duplicateFrame(document.currentFrame);document.currentFrame=(document.currentFrame+1).coerceAtMost(document.duration-1);invalidate();refreshWorkspace()};fun deleteFrame(){stopPlayback();if(document.duration<=1)clearCurrentFrame()else{document.deleteFrame(document.currentFrame);invalidate();refreshWorkspace()}}
-        fun previousFrame(){stopPlayback();document.currentFrame=(document.currentFrame-1).coerceAtLeast(0);invalidate();refreshWorkspace()};fun nextFrame(){stopPlayback();document.currentFrame=(document.currentFrame+1).coerceAtMost(document.duration-1);invalidate();refreshWorkspace()};fun toggleOnion(){onionEnabled=!onionEnabled;invalidate();refreshWorkspace()};fun clearCurrentFrame(){document.activeLayer.frameAt(document.currentFrame)?.strokes?.clear();clearSelection();invalidate();refreshWorkspace()};fun addLayer(){document.addLayer();invalidate();refreshWorkspace()};fun undo(){Toast.makeText(this@MainActivity,"Histórico de ações: próxima integração",Toast.LENGTH_SHORT).show()};fun redo(){Toast.makeText(this@MainActivity,"Histórico de ações: próxima integração",Toast.LENGTH_SHORT).show()}
+        fun selectLayer(id:String){document.selectLayer(id);invalidate()};fun zoom(factor:Float){viewport.zoomAt(factor,width*.5f,height*.5f);invalidate()};fun resetViewport(){viewport.reset();invalidate()}
+        fun insertFrame(){stopPlayback();val before=document.snapshot();document.insertFrame(document.currentFrame);history.record(before,document.snapshot(),"Inserir frame");invalidate();refreshWorkspace()}
+        fun duplicateFrame(){stopPlayback();val before=document.snapshot();document.duplicateFrame(document.currentFrame);document.currentFrame=(document.currentFrame+1).coerceAtMost(document.duration-1);history.record(before,document.snapshot(),"Duplicar frame");invalidate();refreshWorkspace()}
+        fun deleteFrame(){stopPlayback();if(document.duration<=1){clearCurrentFrame()}else{val before=document.snapshot();document.deleteFrame(document.currentFrame);history.record(before,document.snapshot(),"Excluir frame");invalidate();refreshWorkspace()}}
+        fun previousFrame(){stopPlayback();document.currentFrame=(document.currentFrame-1).coerceAtLeast(0);invalidate();refreshWorkspace()};fun nextFrame(){stopPlayback();document.currentFrame=(document.currentFrame+1).coerceAtMost(document.duration-1);invalidate();refreshWorkspace()}
+        fun toggleOnion(){onionEnabled=!onionEnabled;invalidate();refreshWorkspace()}
+        fun clearCurrentFrame(){val before=document.snapshot();document.activeLayer.frameAt(document.currentFrame)?.strokes?.clear();clearSelection();history.record(before,document.snapshot(),"Limpar frame");invalidate();refreshWorkspace()}
+        fun addLayer(){val before=document.snapshot();document.addLayer();history.record(before,document.snapshot(),"Adicionar camada");invalidate();refreshWorkspace()}
+        fun undo(){stopPlayback();clearSelection();if(history.undo(document)){invalidate();refreshWorkspace();Toast.makeText(this@MainActivity,"Desfazer",Toast.LENGTH_SHORT).show()}else Toast.makeText(this@MainActivity,"Nada para desfazer",Toast.LENGTH_SHORT).show()}
+        fun redo(){stopPlayback();clearSelection();if(history.redo(document)){invalidate();refreshWorkspace();Toast.makeText(this@MainActivity,"Refazer",Toast.LENGTH_SHORT).show()}else Toast.makeText(this@MainActivity,"Nada para refazer",Toast.LENGTH_SHORT).show()}
         fun togglePlayback(){if(playing)stopPlayback()else startPlayback()};fun startPlayback(){if(document.duration<=1){Toast.makeText(this@MainActivity,"Adicione pelo menos 2 frames para reproduzir",Toast.LENGTH_SHORT).show();return};playing=true;lastPlaybackNanos=System.nanoTime();playbackAccumulator=0L;clearSelection();Choreographer.getInstance().postFrameCallback(this);refreshWorkspace();invalidate()};fun stopPlayback(){if(!playing)return;playing=false;Choreographer.getInstance().removeFrameCallback(this);lastPlaybackNanos=0L;playbackAccumulator=0L;refreshWorkspace();invalidate()}
         override fun doFrame(frameTimeNanos:Long){if(!playing)return;if(lastPlaybackNanos==0L)lastPlaybackNanos=frameTimeNanos;playbackAccumulator+=(frameTimeNanos-lastPlaybackNanos).coerceAtLeast(0L);lastPlaybackNanos=frameTimeNanos;val frameDuration=1_000_000_000L/document.fps.coerceIn(1,120);while(playbackAccumulator>=frameDuration){playbackAccumulator-=frameDuration;document.advancePlaybackFrame()};invalidate();refreshWorkspace();Choreographer.getInstance().postFrameCallback(this)}
-        fun adjustFps(delta:Int){document.fps=(document.fps+delta).coerceIn(1,60);Toast.makeText(this@MainActivity,"FPS: ${document.fps}",Toast.LENGTH_SHORT).show();invalidate();refreshWorkspace()};fun adjustSize(){BrushToolState.size=when{BrushToolState.size<8f->12f;BrushToolState.size<24f->32f;BrushToolState.size<64f->72f;else->6f};BrushToolState.save(this@MainActivity);Toast.makeText(this@MainActivity,"Tamanho: ${BrushToolState.size.toInt()} px",Toast.LENGTH_SHORT).show();refreshWorkspace()};fun adjustOpacity(){BrushToolState.opacity=when{BrushToolState.opacity>.85f->.65f;BrushToolState.opacity>.55f->.35f;else->1f};BrushToolState.save(this@MainActivity);Toast.makeText(this@MainActivity,"Opacidade: ${(BrushToolState.opacity*100).toInt()}%",Toast.LENGTH_SHORT).show();refreshWorkspace()}
+        fun adjustFps(delta:Int){val before=document.snapshot();document.fps=(document.fps+delta).coerceIn(1,60);history.record(before,document.snapshot(),"Alterar FPS");Toast.makeText(this@MainActivity,"FPS: ${document.fps}",Toast.LENGTH_SHORT).show();invalidate();refreshWorkspace()};fun adjustSize(){BrushToolState.size=when{BrushToolState.size<8f->12f;BrushToolState.size<24f->32f;BrushToolState.size<64f->72f;else->6f};BrushToolState.save(this@MainActivity);Toast.makeText(this@MainActivity,"Tamanho: ${BrushToolState.size.toInt()} px",Toast.LENGTH_SHORT).show();refreshWorkspace()};fun adjustOpacity(){BrushToolState.opacity=when{BrushToolState.opacity>.85f->.65f;BrushToolState.opacity>.55f->.35f;else->1f};BrushToolState.save(this@MainActivity);Toast.makeText(this@MainActivity,"Opacidade: ${(BrushToolState.opacity*100).toInt()}%",Toast.LENGTH_SHORT).show();refreshWorkspace()}
         private fun blend(a:Int,b:Int,amount:Float):Int{val t=amount.coerceIn(0f,1f);return Color.rgb((Color.red(a)*(1f-t)+Color.red(b)*t).toInt(),(Color.green(a)*(1f-t)+Color.green(b)*t).toInt(),(Color.blue(a)*(1f-t)+Color.blue(b)*t).toInt())}
     }
 }
