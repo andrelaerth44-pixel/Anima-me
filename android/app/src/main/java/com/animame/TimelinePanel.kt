@@ -36,7 +36,7 @@ class TimelinePanel(
         addView(ruler, LinearLayout.LayoutParams(-1, 38))
         rows.orientation = VERTICAL
         horizontal.isHorizontalScrollBarEnabled = true
-        horizontal.addView(rows, HorizontalScrollView.LayoutParams(-2, -2))
+        horizontal.addView(rows, android.view.ViewGroup.LayoutParams(-2, -2))
         vertical.isFillViewport = true
         vertical.addView(horizontal, LinearLayout.LayoutParams(-1, -1))
         addView(vertical, LinearLayout.LayoutParams(-1, 0, 1f))
