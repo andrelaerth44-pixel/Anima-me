@@ -5,7 +5,7 @@ import android.graphics.Path
 import android.graphics.Rect
 
 /** Int overload used by the compact editor layout helpers. */
-fun Any.dp(value: Int): Float = value * Resources.getSystem().displayMetrics.density
+fun Any.dp(value: Int): Int = (value * Resources.getSystem().displayMetrics.density).toInt()
 
 /** Minimal region wrapper used by the lasso stroke hit-test. */
 class Region {
