@@ -15,6 +15,7 @@ class SelectionTransformController {
 
     val path = Path()
     private val points = mutableListOf<PointF>()
+    private var armedLasso = false
     var bounds = RectF()
         private set
     var offsetX = 0f
@@ -30,6 +31,7 @@ class SelectionTransformController {
 
     fun activateLasso() {
         mode = Mode.LASSO
+        armedLasso = false
         points.clear()
         path.reset()
         bounds.setEmpty()
@@ -37,6 +39,7 @@ class SelectionTransformController {
 
     fun beginLasso(x: Float, y: Float) {
         mode = Mode.LASSO
+        armedLasso = true
         points.clear()
         path.reset()
         path.moveTo(x, y)
@@ -45,12 +48,14 @@ class SelectionTransformController {
 
     fun addLassoPoint(x: Float, y: Float) {
         if (mode != Mode.LASSO) return
+        armedLasso = false
         path.lineTo(x, y)
         points += PointF(x, y)
     }
 
     fun finishLasso(): Boolean {
         if (mode != Mode.LASSO || points.size < 3) return false
+        armedLasso = false
         path.close()
         var left = Float.POSITIVE_INFINITY
         var top = Float.POSITIVE_INFINITY
@@ -96,7 +101,9 @@ class SelectionTransformController {
     }
 
     fun clear() {
-        mode = Mode.NONE
+        val keepLassoArmed = mode == Mode.LASSO && armedLasso
+        mode = if (keepLassoArmed) Mode.LASSO else Mode.NONE
+        armedLasso = false
         points.clear()
         path.reset()
         bounds.setEmpty()
