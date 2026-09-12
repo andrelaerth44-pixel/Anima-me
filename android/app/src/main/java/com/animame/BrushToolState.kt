@@ -2,6 +2,7 @@ package com.animame
 
 import android.content.Context
 import android.graphics.Color
+import com.animame.editor.BrushSettingsOverrides
 
 object BrushToolState {
     private const val PREFS = "anima_me_brush_state"
@@ -42,6 +43,7 @@ object BrushToolState {
         drawsInside = p.getBoolean(INSIDE, drawsInside)
         randomRotation = p.getBoolean(RANDOM_ROTATION, randomRotation)
         color = p.getInt(COLOR, color)
+        BrushSettingsOverrides.load(context)
     }
 
     fun save(context: Context) {
@@ -58,5 +60,6 @@ object BrushToolState {
             .putBoolean(RANDOM_ROTATION, randomRotation)
             .putInt(COLOR, color)
             .apply()
+        BrushSettingsOverrides.save(context)
     }
 }
