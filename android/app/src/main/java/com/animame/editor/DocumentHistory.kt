@@ -17,14 +17,16 @@ class DocumentHistory(private val maxEntries: Int = 80) {
     }
 
     fun undo(document: AnimationDocument): Boolean {
-        val snapshot = undoStack.removeLastOrNull() ?: return false
+        if (undoStack.isEmpty()) return false
+        val snapshot = undoStack.removeLast()
         redoStack.addLast(AnimationDocumentSnapshot.capture(document))
         snapshot.restoreInto(document)
         return true
     }
 
     fun redo(document: AnimationDocument): Boolean {
-        val snapshot = redoStack.removeLastOrNull() ?: return false
+        if (redoStack.isEmpty()) return false
+        val snapshot = redoStack.removeLast()
         undoStack.addLast(AnimationDocumentSnapshot.capture(document))
         snapshot.restoreInto(document)
         return true
@@ -123,7 +125,7 @@ data class AnimationLayerSnapshot(
         blendMode = blendMode,
         isBackground = isBackground,
         frames = linkedMapOf<Int, DrawingFrame>().apply {
-            frames.forEach { (frame, snapshot) -> put(frame, snapshot.toFrame()) }
+            this@AnimationLayerSnapshot.frames.forEach { (frame, snapshot) -> put(frame, snapshot.toFrame()) }
         }
     )
 
