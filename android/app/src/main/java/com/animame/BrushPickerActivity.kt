@@ -2,9 +2,11 @@ package com.animame
 
 import android.app.Activity
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -19,8 +21,11 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import com.animame.editor.BrushCatalog
 import com.animame.editor.BrushEngine
+import com.animame.editor.BrushQrCodec
+import com.animame.editor.BrushQrImageDecoder
 import com.animame.editor.StrokeSample
 
 class BrushPickerActivity : Activity() {
@@ -37,6 +42,7 @@ class BrushPickerActivity : Activity() {
     private val panelBackground = Color.rgb(10, 31, 49)
     private val fieldBackground = Color.rgb(17, 39, 57)
     private val cellBackground = Color.rgb(15, 36, 54)
+    private val qrRequest = 4101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +64,10 @@ class BrushPickerActivity : Activity() {
             })
         }
         browser.addView(search, LinearLayout.LayoutParams(-1, 46))
+        browser.addView(Button(this).apply {
+            text = "Importar pincel por QR"
+            setOnClickListener { openQrImagePicker() }
+        }, LinearLayout.LayoutParams(-1, 44).apply { setMargins(0, 6, 0, 2) })
         val categories = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 8, 0, 8) }
         (listOf("Todos") + BrushCatalog.categories()).forEach { category -> categories.addView(Button(this).apply { text = category; textSize = 10f; setTextColor(Color.WHITE); setOnClickListener { selectedCategory = category; refreshGrid() }; layoutParams = LinearLayout.LayoutParams(110, 42).apply { setMargins(3, 0, 3, 0) } }) }
         browser.addView(HorizontalScrollView(this).apply { addView(categories) }, LinearLayout.LayoutParams(-1, 56))
@@ -82,8 +92,45 @@ class BrushPickerActivity : Activity() {
         options.addView(check("Desenhar dentro", BrushToolState.drawsInside) { BrushToolState.drawsInside = it; if (it) BrushToolState.drawsInFront = false })
         options.addView(TextView(this).apply { text = "Biblioteca própria do Anima-me. Cada preset resolve as suas definições no motor, mantendo o catálogo separado da interface."; textSize = 12f; setTextColor(Color.LTGRAY); setPadding(0, 12, 0, 12) }, LinearLayout.LayoutParams(-1, 0, 1f))
         options.addView(Button(this).apply { text = "Fechar"; setOnClickListener { BrushToolState.save(this@BrushPickerActivity); setResult(RESULT_OK); finish() } })
-        root.addView(options, LinearLayout.LayoutParams(330, -1))
         setContentView(root); updateLabels(); refreshGrid()
+    }
+
+    private fun openQrImagePicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, qrRequest)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != qrRequest || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        try {
+            contentResolver.openInputStream(uri).use { input ->
+                val bitmap = BitmapFactory.decodeStream(input) ?: error("Não foi possível abrir a imagem")
+                val decoded = BrushQrImageDecoder.decode(bitmap)
+                val imported = BrushQrCodec.decode(decoded.raw)
+                val message = buildString {
+                    append("QR reconhecido.\n\n")
+                    append("Formato: ${decoded.format}\n")
+                    append("Texto detectado: ${decoded.text ?: "binário"}\n")
+                    append("Bytes brutos: ${decoded.raw.size}\n")
+                    append("Magic: ${imported.magic ?: "não identificado"}\n")
+                    append("Versão: ${imported.version ?: "não identificada"}\n")
+                    append("Registros: ${imported.records.size}\n")
+                    append("Payload descomprimido: ${imported.payload?.size ?: 0} bytes")
+                }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Teste de QR do pincel")
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        } catch (t: Throwable) {
+            Toast.makeText(this, "Falha ao ler QR: ${t.message ?: "payload inválido"}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun optionLabel() = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; setPadding(0, 4, 0, 0) }
