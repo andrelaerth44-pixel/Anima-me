@@ -11,9 +11,11 @@ import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import com.animame.editor.AnimationDocument
 import com.animame.editor.AnimationLayer
+import com.animame.editor.DrawingFrame
 
 class TimelinePanel(
     context: Context,
@@ -111,7 +113,7 @@ class TimelinePanel(
             setSingleLine(true)
             setOnClickListener { if (!layer.isBackground) onLayerSelected(layer.id) }
             setOnLongClickListener {
-                if (!layer.isBackground) renameLayer(layer)
+                if (!layer.isBackground) showLayerProperties(layer)
                 true
             }
         }
@@ -158,10 +160,12 @@ class TimelinePanel(
             setBackgroundColor(Color.rgb(20, 23, 27))
         }
         for (frame in 0 until document.duration) {
+            val drawing = layer.frameAt(frame)
             val cell = TextView(context).apply {
                 text = when {
                     frame == document.currentFrame -> "●"
-                    layer.frameAt(frame) != null -> if (layer.frameAt(frame)?.strokes.isNullOrEmpty()) "○" else "●"
+                    drawing != null && drawing.strokes.isNotEmpty() -> "●"
+                    drawing != null -> "○"
                     else -> ""
                 }
                 gravity = Gravity.CENTER
@@ -170,11 +174,16 @@ class TimelinePanel(
                 setBackgroundColor(
                     when {
                         frame == document.currentFrame -> Color.rgb(61, 68, 77)
-                        layer.frameAt(frame) != null -> Color.rgb(49, 56, 64)
+                        drawing != null && drawing.strokes.isNotEmpty() -> Color.rgb(49, 56, 64)
+                        drawing != null -> Color.rgb(42, 48, 55)
                         else -> Color.rgb(30, 34, 39)
                     }
                 )
                 setOnClickListener { onFrameSelected(layer.id, frame) }
+                setOnLongClickListener {
+                    if (!layer.isBackground && drawing != null) showFrameProperties(layer, frame, drawing)
+                    true
+                }
             }
             track.addView(cell, LinearLayout.LayoutParams(frameWidth(), 68).apply { setMargins(2, 3, 2, 3) })
         }
@@ -199,6 +208,74 @@ class TimelinePanel(
                     onLayerChanged()
                 }
             }
+            .show()
+    }
+
+    private fun showLayerProperties(layer: AnimationLayer) {
+        val box = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(24, 8, 24, 0)
+        }
+        val opacity = SeekBar(context).apply {
+            max = 100
+            progress = (layer.opacity.coerceIn(0f, 1f) * 100f).toInt()
+        }
+        val value = TextView(context).apply {
+            text = "Opacidade: ${opacity.progress}%"
+            setTextColor(Color.DKGRAY)
+        }
+        opacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    layer.opacity = progress / 100f
+                    value.text = "Opacidade: $progress%"
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        box.addView(value)
+        box.addView(opacity)
+        AlertDialog.Builder(context)
+            .setTitle("Propriedades da camada")
+            .setView(box)
+            .setNegativeButton("Cancelar", null)
+            .setNeutralButton("Renomear") { _, _ -> renameLayer(layer) }
+            .setPositiveButton("Guardar") { _, _ -> onLayerChanged() }
+            .show()
+    }
+
+    private fun showFrameProperties(layer: AnimationLayer, frameIndex: Int, drawing: DrawingFrame) {
+        val box = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(24, 8, 24, 0)
+        }
+        val exposure = SeekBar(context).apply {
+            max = 24
+            progress = drawing.exposure.coerceIn(1, 24) - 1
+        }
+        val value = TextView(context).apply {
+            text = "Exposição: ${drawing.exposure} frame(s)"
+            setTextColor(Color.DKGRAY)
+        }
+        exposure.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    drawing.exposure = progress + 1
+                    value.text = "Exposição: ${drawing.exposure} frame(s)"
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        box.addView(value)
+        box.addView(exposure)
+        AlertDialog.Builder(context)
+            .setTitle("Frame ${frameIndex + 1}")
+            .setMessage("A exposição mantém este desenho visível por vários frames sem duplicar o conteúdo.")
+            .setView(box)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Guardar") { _, _ -> onLayerChanged() }
             .show()
     }
 
