@@ -9,9 +9,14 @@ import kotlin.math.min
 /** Selection state kept separate from viewport/camera state. */
 class SelectionTransformController {
     enum class Mode { NONE, LASSO, MOVE, TRANSFORM }
+    enum class CombineMode { SET, ADD, SUBTRACT }
 
     var mode: Mode = Mode.NONE
         private set
+
+    var combineMode: CombineMode = CombineMode.SET
+    var featherRadius: Float = 0f
+    var rotateEnabled: Boolean = false
 
     val path = Path()
     private val points = mutableListOf<PointF>()
@@ -28,9 +33,12 @@ class SelectionTransformController {
         private set
     var rotation = 0f
         private set
+    var inverted: Boolean = false
+        private set
 
-    fun activateLasso() {
-        mode = Mode.LASSO
+    fun activateLasso(mode: CombineMode = combineMode) {
+        combineMode = mode
+        this.mode = Mode.LASSO
         armedLasso = false
         points.clear()
         path.reset()
@@ -49,6 +57,8 @@ class SelectionTransformController {
     fun addLassoPoint(x: Float, y: Float) {
         if (mode != Mode.LASSO) return
         armedLasso = false
+        val last = points.lastOrNull()
+        if (last != null && hypot(last.x - x, last.y - y) < 1.5f) return
         path.lineTo(x, y)
         points += PointF(x, y)
     }
@@ -74,6 +84,10 @@ class SelectionTransformController {
         if (!bounds.isEmpty) mode = Mode.MOVE
     }
 
+    fun beginTransform() {
+        if (!bounds.isEmpty) mode = Mode.TRANSFORM
+    }
+
     fun moveBy(dx: Float, dy: Float) {
         if (mode != Mode.MOVE && mode != Mode.TRANSFORM) return
         offsetX += dx
@@ -96,8 +110,21 @@ class SelectionTransformController {
     }
 
     fun rotateBy(degrees: Float) {
-        if (mode != Mode.TRANSFORM) return
+        if (mode != Mode.TRANSFORM || !rotateEnabled) return
         rotation += degrees
+    }
+
+    fun setCombineMode(value: CombineMode) {
+        combineMode = value
+        if (mode == Mode.NONE) mode = Mode.LASSO
+    }
+
+    fun invertSelection() {
+        inverted = !inverted
+    }
+
+    fun doneTransform() {
+        if (mode == Mode.MOVE || mode == Mode.TRANSFORM) mode = Mode.NONE
     }
 
     fun clear() {
@@ -112,5 +139,8 @@ class SelectionTransformController {
         scaleX = 1f
         scaleY = 1f
         rotation = 0f
+        inverted = false
     }
+
+    private fun hypot(dx: Float, dy: Float): Float = kotlin.math.sqrt(dx * dx + dy * dy)
 }
