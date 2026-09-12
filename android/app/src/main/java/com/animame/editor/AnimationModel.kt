@@ -3,7 +3,14 @@ package com.animame.editor
 import android.graphics.PointF
 import java.util.UUID
 
-data class StrokeSample(val x: Float, val y: Float, val pressure: Float = 1f, val timeMs: Long = 0L)
+data class StrokeSample(
+    val x: Float,
+    val y: Float,
+    val pressure: Float = 1f,
+    val timeMs: Long = 0L,
+    val tilt: Float = 0f,
+    val orientation: Float = 0f
+)
 
 data class StrokeData(
     val id: String = UUID.randomUUID().toString(),
