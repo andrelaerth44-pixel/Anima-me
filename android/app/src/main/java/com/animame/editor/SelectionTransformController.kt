@@ -33,6 +33,10 @@ class SelectionTransformController {
         private set
     var rotation = 0f
         private set
+    var flippedHorizontal: Boolean = false
+        private set
+    var flippedVertical: Boolean = false
+        private set
     var inverted: Boolean = false
         private set
 
@@ -114,6 +118,16 @@ class SelectionTransformController {
         rotation += degrees
     }
 
+    fun flipHorizontal() {
+        if (bounds.isEmpty) return
+        flippedHorizontal = !flippedHorizontal
+    }
+
+    fun flipVertical() {
+        if (bounds.isEmpty) return
+        flippedVertical = !flippedVertical
+    }
+
     fun setCombineMode(value: CombineMode) {
         combineMode = value
         if (mode == Mode.NONE) mode = Mode.LASSO
@@ -139,6 +153,8 @@ class SelectionTransformController {
         scaleX = 1f
         scaleY = 1f
         rotation = 0f
+        flippedHorizontal = false
+        flippedVertical = false
         inverted = false
     }
 
