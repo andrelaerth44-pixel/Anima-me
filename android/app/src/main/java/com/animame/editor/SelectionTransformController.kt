@@ -16,7 +16,7 @@ class SelectionTransformController {
 
     var combineMode: CombineMode = CombineMode.SET
     var featherRadius: Float = 0f
-    var rotateEnabled: Boolean = false
+    var rotateEnabled: Boolean = true
 
     val path = Path()
     private val points = mutableListOf<PointF>()
@@ -62,7 +62,7 @@ class SelectionTransformController {
         if (mode != Mode.LASSO) return
         armedLasso = false
         val last = points.lastOrNull()
-        if (last != null && hypot(last.x - x, last.y - y) < 1.5f) return
+        if (last != null && kotlin.math.sqrt((last.x - x) * (last.x - x) + (last.y - y) * (last.y - y)) < 1.5f) return
         path.lineTo(x, y)
         points += PointF(x, y)
     }
@@ -82,6 +82,11 @@ class SelectionTransformController {
         bounds = RectF(left, top, right, bottom)
         mode = Mode.TRANSFORM
         return true
+    }
+
+    fun setBounds(value: RectF) {
+        bounds.set(value)
+        mode = if (value.isEmpty) Mode.NONE else Mode.TRANSFORM
     }
 
     fun beginMove() {
@@ -142,8 +147,7 @@ class SelectionTransformController {
     }
 
     fun clear() {
-        val keepLassoArmed = mode == Mode.LASSO && armedLasso
-        mode = if (keepLassoArmed) Mode.LASSO else Mode.NONE
+        mode = Mode.NONE
         armedLasso = false
         points.clear()
         path.reset()
@@ -157,6 +161,4 @@ class SelectionTransformController {
         flippedVertical = false
         inverted = false
     }
-
-    private fun hypot(dx: Float, dy: Float): Float = kotlin.math.sqrt(dx * dx + dy * dy)
 }
