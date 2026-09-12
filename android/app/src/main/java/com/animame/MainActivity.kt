@@ -252,7 +252,7 @@ class MainActivity : Activity() {
             val leftPanel = dp(toolBarWidthDp + if (optionsPanel.visibility == View.VISIBLE) optionsWidthDp else 0).toFloat()
             c.save(); c.clipRect(leftPanel,top,width.toFloat(),height.toFloat()); c.translate(viewport.offsetX,viewport.offsetY); c.scale(viewport.scale,viewport.scale)
             val left=width*.07f; val right=width*.93f
-            if(!document.transparentBackground)c.drawRect(left,top+dp(14),right,height-dp(14),paper)
+            if(!document.transparentBackground)c.drawRect(left,top+dp(14).toFloat(),right,height-dp(14).toFloat(),paper)
             drawOnionSkin(c); drawDocument(c); if(previewStamps.isNotEmpty())drawStamps(c,previewStamps,accent,1f)
             if(selection.mode != SelectionTransformController.Mode.NONE) drawSelection(c)
             c.restore()
