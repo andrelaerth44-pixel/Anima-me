@@ -16,6 +16,7 @@ import android.widget.TextView
 import com.animame.editor.AnimationDocument
 import com.animame.editor.AnimationLayer
 import com.animame.editor.DrawingFrame
+import com.animame.editor.HistoryRegistry
 
 class TimelinePanel(
     context: Context,
@@ -28,6 +29,7 @@ class TimelinePanel(
     private val rows = LinearLayout(context)
     private val horizontal = HorizontalScrollView(context)
     private val vertical = ScrollView(context)
+    private val history = HistoryRegistry.forDocument(document)
     private var zoom = 1f
     private val baseFrameWidth = 42f
     private val layerHeaderWidth = 230
@@ -95,6 +97,11 @@ class TimelinePanel(
         }
     }
 
+    private fun record(before: com.animame.editor.AnimationDocumentSnapshot, label: String) {
+        history.record(before, document.snapshot(), label)
+        onLayerChanged()
+    }
+
     private fun buildLayerRow(layer: AnimationLayer, accent: Int): View {
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -124,32 +131,38 @@ class TimelinePanel(
             gravity = Gravity.CENTER_VERTICAL
         }
         controls.addView(smallButton(if (layer.visible) "V" else "-", 26) {
+            val before = document.snapshot()
             layer.visible = !layer.visible
-            onLayerChanged()
+            record(before, "Alterar visibilidade da camada")
         })
         controls.addView(smallButton(if (layer.locked) "L" else "U", 26) {
             if (!layer.isBackground) {
+                val before = document.snapshot()
                 layer.locked = !layer.locked
-                onLayerChanged()
+                record(before, "Alterar bloqueio da camada")
             }
         })
         if (!layer.isBackground) {
             controls.addView(smallButton("<", 24) {
+                val before = document.snapshot()
                 document.moveLayer(layer.id, -1)
-                onLayerChanged()
+                record(before, "Mover camada")
             })
             controls.addView(smallButton(">", 24) {
+                val before = document.snapshot()
                 document.moveLayer(layer.id, 1)
-                onLayerChanged()
+                record(before, "Mover camada")
             })
             controls.addView(smallButton("+", 24) {
+                val before = document.snapshot()
                 val created = document.addLayer()
                 onLayerSelected(created.id)
-                onLayerChanged()
+                record(before, "Adicionar camada")
             })
             controls.addView(smallButton("x", 24) {
+                val before = document.snapshot()
                 document.deleteLayer(layer.id)
-                onLayerChanged()
+                record(before, "Excluir camada")
             })
         }
         header.addView(controls, LinearLayout.LayoutParams(-1, 30))
@@ -192,6 +205,7 @@ class TimelinePanel(
     }
 
     private fun renameLayer(layer: AnimationLayer) {
+        val before = document.snapshot()
         val input = EditText(context).apply {
             setSingleLine(true)
             setText(layer.name)
@@ -205,13 +219,14 @@ class TimelinePanel(
                 val value = input.text.toString().trim()
                 if (value.isNotEmpty()) {
                     layer.name = value
-                    onLayerChanged()
+                    record(before, "Renomear camada")
                 }
             }
             .show()
     }
 
     private fun showLayerProperties(layer: AnimationLayer) {
+        val before = document.snapshot()
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(24, 8, 24, 0)
@@ -239,13 +254,14 @@ class TimelinePanel(
         AlertDialog.Builder(context)
             .setTitle("Propriedades da camada")
             .setView(box)
-            .setNegativeButton("Cancelar", null)
+            .setNegativeButton("Cancelar") { _, _ -> document.restore(before); onLayerChanged() }
             .setNeutralButton("Renomear") { _, _ -> renameLayer(layer) }
-            .setPositiveButton("Guardar") { _, _ -> onLayerChanged() }
+            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar propriedades da camada") }
             .show()
     }
 
     private fun showFrameProperties(layer: AnimationLayer, frameIndex: Int, drawing: DrawingFrame) {
+        val before = document.snapshot()
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(24, 8, 24, 0)
@@ -274,8 +290,8 @@ class TimelinePanel(
             .setTitle("Frame ${frameIndex + 1}")
             .setMessage("A exposição mantém este desenho visível por vários frames sem duplicar o conteúdo.")
             .setView(box)
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("Guardar") { _, _ -> onLayerChanged() }
+            .setNegativeButton("Cancelar") { _, _ -> document.restore(before); onLayerChanged() }
+            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar exposição do frame") }
             .show()
     }
 
@@ -285,13 +301,17 @@ class TimelinePanel(
     }
 
     private fun setPlaybackStart() {
+        val before = document.snapshot()
         document.playbackStart = document.currentFrame.coerceIn(0, document.duration - 1)
         if (document.playbackEnd < document.playbackStart) document.playbackEnd = document.playbackStart
+        history.record(before, document.snapshot(), "Definir início da reprodução")
         refresh(ThemeColorStore.get(context))
     }
 
     private fun setPlaybackEnd() {
+        val before = document.snapshot()
         document.playbackEnd = document.currentFrame.coerceIn(document.playbackStart, document.duration - 1)
+        history.record(before, document.snapshot(), "Definir fim da reprodução")
         refresh(ThemeColorStore.get(context))
     }
 
