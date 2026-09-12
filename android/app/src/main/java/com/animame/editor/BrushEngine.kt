@@ -8,7 +8,7 @@ object BrushEngine {
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
         if (samples.isEmpty()) return emptyList()
-        val s = BrushProfileResolver.resolve(settings).normalized()
+        val s = BrushSettingsOverrides.apply(BrushProfileResolver.resolve(settings)).normalized()
         val rng = Random(seed xor s.id.hashCode().toLong())
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
