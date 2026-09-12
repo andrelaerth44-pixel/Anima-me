@@ -54,3 +54,4 @@ jobs:
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
 
 # Build validation is intentionally kept separate from APK delivery: an artifact is only considered valid after the workflow succeeds.
+# Validation trigger: selection/transform + viewport + brush workspace.
