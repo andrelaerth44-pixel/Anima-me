@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
 import android.view.Choreographer
@@ -126,7 +127,13 @@ class MainActivity : Activity() {
         addView(button("Pincéis", 108) { openBrushPicker() })
         addView(button("Laço", 108) { editor.beginLassoMode() })
         addView(button("Mover/Transformar", 108) { editor.beginTransformMode() })
-        addView(button("Cancelar seleção", 108) { editor.clearSelection() })
+        addView(button("Aplicar transformação", 108) { editor.applyTransform() })
+        addView(button("Cancelar transformação", 108) { editor.cancelTransform() })
+        addView(button("Rodar -15", 108) { editor.rotateSelection(-15f) })
+        addView(button("Rodar +15", 108) { editor.rotateSelection(15f) })
+        addView(button("Espelhar H", 108) { editor.flipSelection(true) })
+        addView(button("Espelhar V", 108) { editor.flipSelection(false) })
+        addView(button("Inverter seleção", 108) { editor.invertSelection() })
         addView(button("Nova camada", 108) { editor.addLayer() })
         addView(button("Desfazer", 108) { editor.undo() })
         addView(button("Refazer", 108) { editor.redo() })
@@ -139,7 +146,9 @@ class MainActivity : Activity() {
 
     private fun buildOptionsPanel(): LinearLayout {
         val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(10), dp(10)); setBackgroundColor(Color.rgb(12, 30, 47))
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(10), dp(10))
+            setBackgroundColor(Color.rgb(12, 30, 47))
         }
         panel.addView(TextView(this).apply { text = "Opções da ferramenta"; textSize = 18f; setTextColor(Color.WHITE) }, LinearLayout.LayoutParams(-1, dp(38)))
         val brushName = TextView(this).apply { setTextColor(Color.WHITE); textSize = 14f }; panel.addView(brushName)
@@ -155,7 +164,7 @@ class MainActivity : Activity() {
         panel.addView(check("Sensibilidade à pressão", BrushToolState.pressure) { BrushToolState.pressure = it; BrushToolState.save(this@MainActivity) })
         panel.addView(check("Randomizar rotação", BrushToolState.randomRotation) { BrushToolState.randomRotation = it; BrushToolState.save(this@MainActivity) })
         panel.addView(TextView(this).apply {
-            text = "Fluxo horizontal: ferramentas à esquerda, opções junto ao canvas e timeline no topo. Laço e transformação trabalham diretamente sobre os traços do frame."
+            text = "Fluxo horizontal: ferramentas à esquerda, opções junto ao canvas e timeline no topo. A seleção é vetorial por traço e a transformação é aplicada aos pontos do frame."
             textSize = 12f; setTextColor(Color.LTGRAY); setPadding(0, dp(14), 0, 0)
         }, LinearLayout.LayoutParams(-1, 0, 1f))
         panel.post { updateOptionLabels(brushName, sizeLabel, opacityLabel); spacingLabel.text = "Espaçamento: ${"%.2f".format(BrushToolState.spacing)}"; smoothingLabel.text = "Suavização: ${(BrushToolState.smoothing * 100).toInt()}%" }
@@ -262,8 +271,8 @@ class MainActivity : Activity() {
             if (!selection.bounds.isEmpty) { val b=selection.bounds; c.drawRect(b,selectionPaint); val r=8f; c.drawCircle(b.left,b.top,r,handlePaint); c.drawCircle(b.right,b.top,r,handlePaint); c.drawCircle(b.left,b.bottom,r,handlePaint); c.drawCircle(b.right,b.bottom,r,handlePaint) }
         }
 
-        fun beginLassoMode(){ stopPlayback(); clearSelection(); selection.beginLasso(0f,0f); selection.clear(); lassoDrawing=false; tool=Tool.BRUSH; invalidate(); Toast.makeText(this@MainActivity,"Laço: contorne o desenho no canvas",Toast.LENGTH_SHORT).show() }
-        fun beginTransformMode(){ if(selectedStrokeIds.isEmpty()){Toast.makeText(this@MainActivity,"Faça uma seleção primeiro",Toast.LENGTH_SHORT).show();return}; selection.beginMove(); transformGesture=false; invalidate(); Toast.makeText(this@MainActivity,"Mover/Transformar: arraste ou use dois dedos",Toast.LENGTH_SHORT).show() }
+        fun beginLassoMode(){ stopPlayback(); clearSelection(); selection.activateLasso(); lassoDrawing=false; tool=Tool.BRUSH; invalidate(); Toast.makeText(this@MainActivity,"Laço: contorne o desenho no canvas",Toast.LENGTH_SHORT).show() }
+        fun beginTransformMode(){ if(selectedStrokeIds.isEmpty()){Toast.makeText(this@MainActivity,"Faça uma seleção primeiro",Toast.LENGTH_SHORT).show();return}; selection.beginTransform(); transformGesture=false; invalidate(); Toast.makeText(this@MainActivity,"Transformação ativa",Toast.LENGTH_SHORT).show() }
         fun clearSelection(){selection.clear();selectedStrokeIds.clear();lassoDrawing=false;transformGesture=false;transformHistoryBefore=null;invalidate()}
 
         override fun onTouchEvent(event:MotionEvent):Boolean{
@@ -280,7 +289,7 @@ class MainActivity : Activity() {
         }
 
         private fun handleSelectionTouch(event:MotionEvent):Boolean{
-            if(event.actionMasked==MotionEvent.ACTION_CANCEL){cancelTransformHistory();clearSelection();return true}
+            if(event.actionMasked==MotionEvent.ACTION_CANCEL){restoreTransform();clearSelection();return true}
             if(selection.mode==SelectionTransformController.Mode.LASSO){
                 when(event.actionMasked){
                     MotionEvent.ACTION_DOWN->{selection.beginLasso(modelX(event.x),modelY(event.y));lassoDrawing=true;invalidate();return true}
@@ -297,13 +306,21 @@ class MainActivity : Activity() {
 
         private fun beginTransformHistory(){if(transformHistoryBefore==null)transformHistoryBefore=document.snapshot()}
         private fun finishTransformHistory(){val before=transformHistoryBefore?:return;history.record(before,document.snapshot(),"Transformar seleção");transformHistoryBefore=null;refreshWorkspace()}
-        private fun cancelTransformHistory(){val before=transformHistoryBefore?:return;document.restore(before);transformHistoryBefore=null;refreshWorkspace()}
+        private fun restoreTransform(){val before=transformHistoryBefore?:return;document.restore(before);transformHistoryBefore=null;selection.clear();invalidate();refreshWorkspace()}
 
         private fun selectStrokesInsideLasso(){selectedStrokeIds.clear();val frame=document.activeLayer.frameAt(document.currentFrame)?:return;val region=android.graphics.Region();val b=selection.bounds;val rect=android.graphics.Rect(b.left.toInt(),b.top.toInt(),b.right.toInt()+1,b.bottom.toInt()+1);region.setPath(selection.path,android.graphics.Region(rect));frame.strokes.forEach{stroke->if(stroke.samples.any{s->region.contains(s.x.toInt(),s.y.toInt())})selectedStrokeIds+=stroke.id};if(selectedStrokeIds.isEmpty())Toast.makeText(this@MainActivity,"Nenhum traço encontrado na seleção",Toast.LENGTH_SHORT).show()}
         private fun selectedStrokes():List<StrokeData>{val frame=document.activeLayer.frameAt(document.currentFrame)?:return emptyList();return frame.strokes.filter{selectedStrokeIds.contains(it.id)}}
         private fun applyTranslation(dx:Float,dy:Float){selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];stroke.samples[i]=s.copy(x=s.x+dx,y=s.y+dy)}};selection.moveBy(dx,dy)}
         private fun applyScale(f:Float,pivotX:Float,pivotY:Float){val factor=f.coerceIn(.2f,5f);selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];stroke.samples[i]=s.copy(x=pivotX+(s.x-pivotX)*factor,y=pivotY+(s.y-pivotY)*factor)}};selection.scaleBy(factor,pivotX,pivotY)}
         private fun applyRotation(degrees:Float,pivotX:Float,pivotY:Float){if(degrees==0f)return;val r=Math.toRadians(degrees.toDouble());val co=cos(r).toFloat();val si=sin(r).toFloat();selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];val dx=s.x-pivotX;val dy=s.y-pivotY;stroke.samples[i]=s.copy(x=pivotX+dx*co-dy*si,y=pivotY+dx*si+dy*co)}};selection.rotateBy(degrees)}
+
+        fun applyTransform(){if(selectedStrokeIds.isEmpty())return;finishTransformHistory();selection.doneTransform();transformGesture=false;invalidate();refreshWorkspace();Toast.makeText(this@MainActivity,"Transformação aplicada",Toast.LENGTH_SHORT).show()}
+        fun cancelTransform(){restoreTransform();Toast.makeText(this@MainActivity,"Transformação cancelada",Toast.LENGTH_SHORT).show()}
+        fun rotateSelection(degrees:Float){if(selectedStrokeIds.isEmpty())return;beginTransformHistory();val b=selection.bounds;val px=b.centerX();val py=b.centerY();applyRotation(degrees,px,py);finishTransformHistory();invalidate();refreshWorkspace()}
+        fun flipSelection(horizontal:Boolean){if(selectedStrokeIds.isEmpty())return;beginTransformHistory();val b=selection.bounds;val px=b.centerX();val py=b.centerY();selectedStrokes().forEach{stroke->for(i in stroke.samples.indices){val s=stroke.samples[i];stroke.samples[i]=if(horizontal)s.copy(x=px-(s.x-px))else s.copy(y=py-(s.y-py))}};if(horizontal)selection.flipHorizontal()else selection.flipVertical();finishTransformHistory();invalidate();refreshWorkspace()}
+        fun invertSelection(){val frame=document.activeLayer.frameAt(document.currentFrame)?:return;val previous=selectedStrokeIds.toSet();selectedStrokeIds.clear();frame.strokes.forEach{if(!previous.contains(it.id))selectedStrokeIds+=it.id};if(selectedStrokeIds.isEmpty()){selection.clear();invalidate();return};selection.invertSelection();rebuildSelectionBounds();invalidate();refreshWorkspace()}
+        private fun rebuildSelectionBounds(){val strokes=selectedStrokes();if(strokes.isEmpty())return;var l=Float.POSITIVE_INFINITY;var t=Float.POSITIVE_INFINITY;var r=Float.NEGATIVE_INFINITY;var b=Float.NEGATIVE_INFINITY;strokes.forEach{s->s.samples.forEach{p->l=minOf(l,p.x);t=minOf(t,p.y);r=maxOf(r,p.x);b=maxOf(b,p.y)}};selection.setBounds(RectF(l,t,r,b))}
+
         private fun distance(e:MotionEvent)=hypot(e.getX(1)-e.getX(0),e.getY(1)-e.getY(0));private fun angle(e:MotionEvent)=Math.toDegrees(atan2((e.getY(1)-e.getY(0)).toDouble(),(e.getX(1)-e.getX(0)).toDouble())).toFloat();private fun modelX(x:Float)=(x-viewport.offsetX)/viewport.scale;private fun modelY(y:Float)=(y-viewport.offsetY)/viewport.scale
         private fun addSample(event:MotionEvent){val pressure=if(BrushToolState.pressure)event.pressure.coerceIn(.05f,1f)else 1f;currentSamples+=StrokeSample(modelX(event.x),modelY(event.y),pressure,event.eventTime)}
         private fun renderPreview(){val id=if(tool==Tool.ERASER)"eraser"else BrushToolState.brushId;val base=if(tool==Tool.ERASER)BrushDefaults.forPreset("eraser")else BrushCatalog.settings(id);val settings=base.copy(size=BrushToolState.size,opacity=BrushToolState.opacity,spacing=BrushToolState.spacing);previewStamps=BrushEngine.stamps(BrushEngine.smooth(currentSamples,BrushToolState.smoothing),settings,document.currentFrame.toLong())}
