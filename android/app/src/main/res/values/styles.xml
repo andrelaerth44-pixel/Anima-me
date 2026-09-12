@@ -1,9 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="AnimameButton" parent="@android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/animame_button</item>
+        <item name="android:textColor">#F4FAFF</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:minHeight">0dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingLeft">10dp</item>
+        <item name="android:paddingRight">10dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:elevation">1dp</item>
+    </style>
+
     <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">#1E5A80</item>
+        <item name="android:buttonStyle">@style/AnimameButton</item>
+        <item name="android:windowBackground">#0E141A</item>
         <item name="android:navigationBarColor">#050E17</item>
         <item name="android:statusBarColor">#050E17</item>
         <item name="android:windowLightNavigationBar">false</item>
