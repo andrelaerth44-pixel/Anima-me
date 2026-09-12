@@ -62,8 +62,8 @@ object BrushEngine {
             val sy = if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f
             val direction = if (dx != 0f || dy != 0f) atan2(dy, dx) else 0f
             val rotation = s.initialAngle +
-                if (s.followRotation) direction else 0f +
-                if (p.orientation != 0f) p.orientation else 0f +
+                (if (s.followRotation) direction else 0f) +
+                (if (p.orientation != 0f) p.orientation else 0f) +
                 s.rotationJitter * (rng.nextFloat() * 2f - 1f)
             val spacing = max(.35f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
             distance += hypot(dx, dy)
