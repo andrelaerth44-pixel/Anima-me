@@ -3,6 +3,7 @@ package com.animame
 import android.content.Context
 import android.graphics.Color
 import com.animame.editor.BrushSettingsOverrides
+import com.animame.editor.BrushToolRuntime
 
 object BrushToolState {
     private const val PREFS = "anima_me_brush_state"
@@ -44,9 +45,18 @@ object BrushToolState {
         randomRotation = p.getBoolean(RANDOM_ROTATION, randomRotation)
         color = p.getInt(COLOR, color)
         BrushSettingsOverrides.load(context)
+        BrushToolRuntime.flow = flow.coerceIn(0f, 1f)
+        BrushToolRuntime.pressureEnabled = pressure
     }
 
     fun save(context: Context) {
+        flow = flow.coerceIn(0f, 1f)
+        opacity = opacity.coerceIn(0f, 1f)
+        size = size.coerceIn(.25f, 4096f)
+        spacing = spacing.coerceIn(.005f, 4f)
+        smoothing = smoothing.coerceIn(0f, 1f)
+        BrushToolRuntime.flow = flow
+        BrushToolRuntime.pressureEnabled = pressure
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(ID, brushId)
             .putFloat(SIZE, size)
