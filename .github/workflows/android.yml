@@ -38,7 +38,7 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Build release APK
+      - name: Build signed release APK
         run: gradle --no-daemon :app:assembleRelease
 
       - name: Upload debug APK
@@ -47,11 +47,11 @@ jobs:
           name: Anima-me-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload release APK
+      - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
           name: Anima-me-release-apk
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
 
-# Build validation is intentionally kept separate from APK delivery: an artifact is only considered valid after the workflow succeeds.
+# Release artifact is signed with the CI runner's standard debug keystore so it is installable for development/testing.
 # Validation trigger: selection/transform + viewport + brush workspace.
