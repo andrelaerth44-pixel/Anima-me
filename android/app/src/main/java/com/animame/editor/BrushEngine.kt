@@ -21,13 +21,14 @@ object BrushEngine {
             val speed = if (q == null) 0f else hypot(dx, dy) / dt.toFloat()
             val speed01 = (speed / 2f).coerceIn(0f, 1f)
             val pressure = p.pressure.coerceIn(0f, 1f)
+            val effectivePressure = if (s.pressureSizeFactor <= 0f && s.pressureOpacityFactor <= 0f) 1f else pressure
             val tilt01 = (p.tilt / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
-            val pressureSize = lerp(s.minSizeFactor, 1f, pressure * s.pressureSizeFactor.coerceIn(0f, 1f))
-            val pressureOpacity = lerp(s.minOpacity, 1f, pressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
+            val pressureSize = lerp(s.minSizeFactor, 1f, effectivePressure * s.pressureSizeFactor.coerceIn(0f, 1f))
+            val pressureOpacity = lerp(s.minOpacity, 1f, effectivePressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
             val fade = strokeFade(p, samples, s)
-            val pressureBlur = pressure * s.pressureBlurFactor.coerceIn(0f, 2f)
+            val pressureBlur = effectivePressure * s.pressureBlurFactor.coerceIn(0f, 2f)
             val speedBlur = speed01 * s.speedBlurFactor.coerceIn(0f, 2f)
             val dynamicBlur = (s.blur + pressureBlur * .22f + speedBlur * .18f).coerceIn(0f, 1f)
             val tiltSize = if (p.tilt > 0f && (s.material == BrushMaterial.PENCIL || s.material == BrushMaterial.CHARCOAL || s.material == BrushMaterial.CHALK || s.aspect != 1f)) {
@@ -48,14 +49,15 @@ object BrushEngine {
             } else 1f
             val blurExpansion = 1f + dynamicBlur * .65f
             val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion * tiltSize
-            val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade
+            val flow = BrushToolRuntime.flow.coerceIn(0f, 1f)
+            val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade * flow
             val materialAlpha = when (s.algorithm) {
-                BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.4f + pressure * 0.6f)
+                BrushAlgorithm.AIRBRUSH -> baseAlpha * (0.4f + effectivePressure * 0.6f)
                 BrushAlgorithm.WATER -> baseAlpha * (0.5f + s.waterWetness.coerceIn(0f, 1f) * 0.5f)
                 BrushAlgorithm.SMUDGE -> baseAlpha * .38f
                 BrushAlgorithm.PROCEDURAL -> baseAlpha * (0.72f + rng.nextFloat() * .28f)
                 BrushAlgorithm.DOUBLE, BrushAlgorithm.VECTOR, BrushAlgorithm.MONO, BrushAlgorithm.COLOR -> baseAlpha
-                BrushAlgorithm.ERASER -> 1f
+                BrushAlgorithm.ERASER -> flow
             }
             val blurAlpha = if (dynamicBlur > 0f) 1f - dynamicBlur * .28f else 1f
             val jitter = s.jitterPosition * size
