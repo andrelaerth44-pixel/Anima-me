@@ -23,12 +23,19 @@ data class EditorViewportState(
         scale = next
     }
 
+    // Public alias used by the editor surface and toolbar.
+    fun zoomAt(factor: Float, pivotX: Float, pivotY: Float) = zoomBy(factor, pivotX, pivotY)
+
     fun panBy(dx: Float, dy: Float) {
         offsetX += dx
         offsetY += dy
     }
 
     fun rotateBy(degrees: Float) {
-        rotation = (rotation + degrees) % 360f
+        rotation = (rotation + degrees).let { value ->
+            var normalized = value % 360f
+            if (normalized < 0f) normalized += 360f
+            normalized
+        }
     }
 }
