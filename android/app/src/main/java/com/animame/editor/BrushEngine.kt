@@ -27,6 +27,9 @@ object BrushEngine {
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
             val fade = strokeFade(p, samples, s)
+            val pressureBlur = pressure * s.pressureBlurFactor.coerceIn(0f, 2f)
+            val speedBlur = speed01 * s.speedBlurFactor.coerceIn(0f, 2f)
+            val dynamicBlur = (s.blur + pressureBlur * .22f + speedBlur * .18f).coerceIn(0f, 1f)
             val tiltSize = if (p.tilt > 0f && (s.material == BrushMaterial.PENCIL || s.material == BrushMaterial.CHARCOAL || s.material == BrushMaterial.CHALK || s.aspect != 1f)) {
                 1f + tilt01 * .9f
             } else 1f
@@ -43,7 +46,7 @@ object BrushEngine {
             val textureVariation = if (s.textureOpacity > 0f) {
                 1f - s.textureOpacity.coerceIn(0f, 1f) * (rng.nextFloat() * .45f)
             } else 1f
-            val blurExpansion = 1f + s.blur.coerceIn(0f, 1f) * .65f
+            val blurExpansion = 1f + dynamicBlur * .65f
             val size = s.size * pressureSize * speedSize * materialSize * textureVariation * blurExpansion * tiltSize
             val baseAlpha = s.opacity * pressureOpacity * speedOpacity * fade
             val materialAlpha = when (s.algorithm) {
@@ -54,6 +57,7 @@ object BrushEngine {
                 BrushAlgorithm.DOUBLE, BrushAlgorithm.VECTOR, BrushAlgorithm.MONO, BrushAlgorithm.COLOR -> baseAlpha
                 BrushAlgorithm.ERASER -> 1f
             }
+            val blurAlpha = if (dynamicBlur > 0f) 1f - dynamicBlur * .28f else 1f
             val jitter = s.jitterPosition * size
             val jx = (rng.nextFloat() * 2f - 1f) * jitter
             val jy = (rng.nextFloat() * 2f - 1f) * jitter
@@ -72,7 +76,7 @@ object BrushEngine {
                     p.x + jx + sx,
                     p.y + jy + sy,
                     size.coerceIn(.25f, 4096f),
-                    materialAlpha.coerceIn(0f, 1f),
+                    (materialAlpha * blurAlpha).coerceIn(0f, 1f),
                     rotation,
                     (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f)
                 )
