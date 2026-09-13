@@ -91,33 +91,37 @@ class ImportExportActivity : Activity() {
     }
 
     private fun pickImages() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "image/*"
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             addCategory(Intent.CATEGORY_OPENABLE)
-        }, pickImages)
+        }
+        startActivityForResult(intent, pickImages)
     }
 
     private fun pickVideo() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "video/*"
             addCategory(Intent.CATEGORY_OPENABLE)
-        }, pickVideo)
+        }
+        startActivityForResult(intent, pickVideo)
     }
 
     private fun pickQr() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             type = "image/*"
             addCategory(Intent.CATEGORY_OPENABLE)
-        }, pickQr)
+        }
+        startActivityForResult(intent, pickQr)
     }
 
     private fun save(code: Int, name: String, mime: String) {
-        startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             type = mime
             putExtra(Intent.EXTRA_TITLE, name)
             addCategory(Intent.CATEGORY_OPENABLE)
-        }, code)
+        }
+        startActivityForResult(intent, code)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -125,23 +129,22 @@ class ImportExportActivity : Activity() {
         if (resultCode != RESULT_OK || data == null) return
         when (requestCode) {
             pickImages -> importImages(data)
-            pickVideo -> importVideo(data.data)
-            pickQr -> importQr(data.data)
-            saveImage -> exportImage(data.data)
-            savePng -> exportPngZip(data.data)
-            saveGif -> exportGif(data.data)
-            saveMp4 -> exportMp4(data.data)
+            pickVideo -> data.data?.let(::importVideo)
+            pickQr -> data.data?.let(::importQr)
+            saveImage -> data.data?.let(::exportImage)
+            savePng -> data.data?.let(::exportPngZip)
+            saveGif -> data.data?.let(::exportGif)
+            saveMp4 -> data.data?.let(::exportMp4)
         }
     }
 
     private fun importImages(data: Intent) {
         val uris = mutableListOf<Uri>()
-        data.data?.let(uris::add)
+        data.data?.let { uris += it }
         data.clipData?.let { clip ->
             for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri
         }
-        val ordered = uris.distinct().sortedBy(::displayName)
-        val decoded = ordered.mapNotNull(::decode)
+        val decoded = uris.distinct().sortedBy(::displayName).mapNotNull(::decode)
         if (decoded.isNotEmpty()) {
             MediaSequenceStore.replace(decoded)
             refresh()
@@ -149,19 +152,18 @@ class ImportExportActivity : Activity() {
         }
     }
 
-    private fun importVideo(uri: Uri?) {
-        if (uri == null) return
+    private fun importVideo(uri: Uri) {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(this, uri)
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             val fps = 24
-            val step = 1_000_000L / fps
-            var t = 0L
+            val stepUs = 1_000_000L / fps
+            var timeUs = 0L
             val frames = mutableListOf<Bitmap>()
-            while (t < duration * 1000L && frames.size < 240) {
-                retriever.getFrameAtTime(t, MediaMetadataRetriever.OPTION_CLOSEST)?.let { frames += scale(it, 1280) }
-                t += step
+            while (timeUs < duration * 1000L && frames.size < 240) {
+                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)?.let { frames += scale(it, 1280) }
+                timeUs += stepUs
             }
             if (frames.isNotEmpty()) {
                 MediaSequenceStore.replace(frames)
@@ -177,8 +179,7 @@ class ImportExportActivity : Activity() {
         }
     }
 
-    private fun importQr(uri: Uri?) {
-        if (uri == null) return
+    private fun importQr(uri: Uri) {
         val bitmap = decode(uri) ?: return
         val payload = ProjectQrCodec.decode(bitmap)
         bitmap.recycle()
@@ -195,16 +196,14 @@ class ImportExportActivity : Activity() {
         ).show()
     }
 
-    private fun exportImage(uri: Uri?) {
-        if (uri == null) return
-        val source = MediaSequenceStore.all().first()
+    private fun exportImage(uri: Uri) {
+        val source = MediaSequenceStore.all().firstOrNull() ?: return
         val bitmap = Bitmap.createBitmap(source)
         val payload = ProjectQrCodec.payload(com.animame.editor.AnimationDocument(duration = MediaSequenceStore.count), MediaSequenceStore.count)
         val qr = try { ProjectQrCodec.qrBitmap(payload, 360) } catch (_: Throwable) { null }
         qr?.let {
             val canvas = Canvas(bitmap)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-            canvas.drawBitmap(it, (bitmap.width - it.width - 24).toFloat(), (bitmap.height - it.height - 24).toFloat(), paint)
+            canvas.drawBitmap(it, (bitmap.width - it.width - 24).toFloat(), (bitmap.height - it.height - 24).toFloat(), Paint(Paint.ANTI_ALIAS_FLAG))
             it.recycle()
         }
         contentResolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -212,8 +211,7 @@ class ImportExportActivity : Activity() {
         Toast.makeText(this, "PNG exportado com QR.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun exportPngZip(uri: Uri?) {
-        if (uri == null) return
+    private fun exportPngZip(uri: Uri) {
         contentResolver.openOutputStream(uri)?.use { output ->
             ZipOutputStream(BufferedOutputStream(output)).use { zip ->
                 MediaSequenceStore.all().forEachIndexed { index, bitmap ->
@@ -230,20 +228,16 @@ class ImportExportActivity : Activity() {
         Toast.makeText(this, "Sequência PNG exportada.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun exportGif(uri: Uri?) {
-        if (uri == null) return
+    private fun exportGif(uri: Uri) {
         contentResolver.openOutputStream(uri)?.use { GifSequenceEncoder.encode(MediaSequenceStore.all(), it, 42) }
         Toast.makeText(this, "GIF exportado.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun exportMp4(uri: Uri?) {
-        if (uri == null) return
+    private fun exportMp4(uri: Uri) {
         val temp = java.io.File(cacheDir, "animame-export.mp4")
         try {
             VideoSequenceEncoder.encode(MediaSequenceStore.all(), temp, 24)
-            contentResolver.openOutputStream(uri)?.use { destination ->
-                temp.inputStream().use { source -> source.copyTo(destination) }
-            }
+            contentResolver.openOutputStream(uri)?.use { destination -> temp.inputStream().use { source -> source.copyTo(destination) } }
             Toast.makeText(this, "MP4 H.264 exportado.", Toast.LENGTH_SHORT).show()
         } catch (e: Throwable) {
             Toast.makeText(this, "MP4 não suportado neste dispositivo: ${e.message}", Toast.LENGTH_LONG).show()
@@ -261,8 +255,8 @@ class ImportExportActivity : Activity() {
     private fun scale(bitmap: Bitmap, max: Int): Bitmap {
         val largest = maxOf(bitmap.width, bitmap.height)
         if (largest <= max) return bitmap
-        val scale = max.toFloat() / largest
-        val scaled = Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true)
+        val factor = max.toFloat() / largest
+        val scaled = Bitmap.createScaledBitmap(bitmap, (bitmap.width * factor).toInt().coerceAtLeast(1), (bitmap.height * factor).toInt().coerceAtLeast(1), true)
         if (scaled !== bitmap) bitmap.recycle()
         return scaled
     }
