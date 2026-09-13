@@ -15,7 +15,6 @@ object VideoSequenceEncoder {
         val width = first.width and -2
         val height = first.height and -2
         require(width >= 2 && height >= 2) { "Video dimensions must be at least 2x2" }
-
         val safeFps = fps.coerceIn(1, 60)
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
@@ -23,7 +22,6 @@ object VideoSequenceEncoder {
             setInteger(MediaFormat.KEY_FRAME_RATE, safeFps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
         }
-
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         var muxer: MediaMuxer? = null
         var trackIndex = -1
@@ -31,11 +29,9 @@ object VideoSequenceEncoder {
         val info = MediaCodec.BufferInfo()
         val frameDurationUs = 1_000_000L / safeFps
         var pts = 0L
-
         try {
             codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
-
             fun startMuxer(outputFormat: MediaFormat) {
                 if (muxerStarted) return
                 muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
@@ -43,7 +39,6 @@ object VideoSequenceEncoder {
                 muxer!!.start()
                 muxerStarted = true
             }
-
             fun drain(endOfStream: Boolean = false): Boolean {
                 var eos = false
                 while (true) {
@@ -66,7 +61,6 @@ object VideoSequenceEncoder {
                     }
                 }
             }
-
             frames.forEach { bitmap ->
                 var queued = false
                 while (!queued) {
@@ -82,7 +76,6 @@ object VideoSequenceEncoder {
                     drain()
                 }
             }
-
             var eosQueued = false
             while (!eosQueued) {
                 val inputIndex = codec.dequeueInputBuffer(100_000)
@@ -92,14 +85,11 @@ object VideoSequenceEncoder {
                 }
                 drain()
             }
-
             while (!drain(endOfStream = true)) { }
         } finally {
             try { codec.stop() } catch (_: Throwable) { }
             codec.release()
-            if (muxerStarted) {
-                try { muxer?.stop() } catch (_: Throwable) { }
-            }
+            if (muxerStarted) try { muxer?.stop() } catch (_: Throwable) { }
             muxer?.release()
         }
     }
@@ -110,40 +100,24 @@ object VideoSequenceEncoder {
         val y = ByteArray(width * height)
         val u = ByteArray(width * height / 4)
         val v = ByteArray(width * height / 4)
-
-        for (j in 0 until height) {
-            for (i in 0 until width) {
-                val c = pixels[j * src.width + i]
-                val r = (c ushr 16) and 255
-                val g = (c ushr 8) and 255
-                val b = c and 255
-                y[j * width + i] = ((((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)).toByte()
-            }
+        for (j in 0 until height) for (i in 0 until width) {
+            val c = pixels[j * src.width + i]
+            val r = (c ushr 16) and 255
+            val g = (c ushr 8) and 255
+            val b = c and 255
+            y[j * width + i] = ((((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)).toByte()
         }
-
-        for (j in 0 until height step 2) {
-            for (i in 0 until width step 2) {
-                var sr = 0
-                var sg = 0
-                var sb = 0
-                repeat(2) { dy ->
-                    repeat(2) { dx ->
-                        val c = pixels[(j + dy) * src.width + i + dx]
-                        sr += (c ushr 16) and 255
-                        sg += (c ushr 8) and 255
-                        sb += c and 255
-                    }
-                }
-                val r = sr / 4
-                val g = sg / 4
-                val b = sb / 4
-                val index = (j / 2) * (width / 2) + i / 2
-                u[index] = (((-38 * r - 74 * g + 112 * b + 128 shr 8) + 128).coerceIn(0, 255)).toByte()
-                v[index] = (((112 * r - 94 * g - 18 * b + 128 shr 8) + 128).coerceIn(0, 255)).toByte()
-            }
+        for (j in 0 until height step 2) for (i in 0 until width step 2) {
+            var sr = 0; var sg = 0; var sb = 0
+            repeat(2) { dy -> repeat(2) { dx ->
+                val c = pixels[(j + dy) * src.width + i + dx]
+                sr += (c ushr 16) and 255; sg += (c ushr 8) and 255; sb += c and 255
+            } }
+            val r = sr / 4; val g = sg / 4; val b = sb / 4
+            val index = (j / 2) * (width / 2) + i / 2
+            u[index] = ((((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
+            v[index] = ((((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
         }
-        buffer.put(y)
-        buffer.put(u)
-        buffer.put(v)
+        buffer.put(y); buffer.put(u); buffer.put(v)
     }
 }
