@@ -7,9 +7,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import java.io.File
 import java.nio.ByteBuffer
-import kotlin.math.min
 
-/** Native Android H.264 encoder. Uses MediaCodec/MediaMuxer, no FFmpeg dependency. */
 object VideoSequenceEncoder {
     fun encode(frames: List<Bitmap>, output: File, fps: Int = 24) {
         require(frames.isNotEmpty()) { "No frames" }
@@ -49,11 +47,12 @@ object VideoSequenceEncoder {
             fun drain(endOfStream: Boolean = false): Boolean {
                 var eos = false
                 while (true) {
-                    when (val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)) {
-                        MediaCodec.INFO_TRY_AGAIN_LATER -> return eos
-                        MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> startMuxer(codec.outputFormat)
-                        MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
-                        else -> if (index >= 0) {
+                    val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
+                    when {
+                        index == MediaCodec.INFO_TRY_AGAIN_LATER -> return eos
+                        index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> startMuxer(codec.getOutputFormat())
+                        index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
+                        index >= 0 -> {
                             val data = codec.getOutputBuffer(index)
                             if (data != null && info.size > 0 && muxerStarted) {
                                 data.position(info.offset)
@@ -94,9 +93,7 @@ object VideoSequenceEncoder {
                 drain()
             }
 
-            while (!drain(endOfStream = true)) {
-                // Drain until the encoder emits EOS.
-            }
+            while (!drain(endOfStream = true)) { }
         } finally {
             try { codec.stop() } catch (_: Throwable) { }
             codec.release()
@@ -120,8 +117,7 @@ object VideoSequenceEncoder {
                 val r = (c ushr 16) and 255
                 val g = (c ushr 8) and 255
                 val b = c and 255
-                val value = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)
-                y[j * width + i] = value.toByte()
+                y[j * width + i] = ((((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)).toByte()
             }
         }
 
@@ -142,8 +138,8 @@ object VideoSequenceEncoder {
                 val g = sg / 4
                 val b = sb / 4
                 val index = (j / 2) * (width / 2) + i / 2
-                u[index] = ((((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
-                v[index] = ((((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
+                u[index] = (((-38 * r - 74 * g + 112 * b + 128 shr 8) + 128).coerceIn(0, 255)).toByte()
+                v[index] = (((112 * r - 94 * g - 18 * b + 128 shr 8) + 128).coerceIn(0, 255)).toByte()
             }
         }
         buffer.put(y)
