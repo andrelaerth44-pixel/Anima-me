@@ -21,7 +21,7 @@ object BrushEngine {
             val speed = if (q == null) 0f else hypot(dx, dy) / dt.toFloat()
             val speed01 = (speed / 2f).coerceIn(0f, 1f)
             val pressure = p.pressure.coerceIn(0f, 1f)
-            val effectivePressure = if (s.pressureSizeFactor <= 0f && s.pressureOpacityFactor <= 0f) 1f else pressure
+            val effectivePressure = if (BrushToolRuntime.pressureEnabled) pressure else 1f
             val tilt01 = (p.tilt / (PI.toFloat() / 2f)).coerceIn(0f, 1f)
             val pressureSize = lerp(s.minSizeFactor, 1f, effectivePressure * s.pressureSizeFactor.coerceIn(0f, 1f))
             val pressureOpacity = lerp(s.minOpacity, 1f, effectivePressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
