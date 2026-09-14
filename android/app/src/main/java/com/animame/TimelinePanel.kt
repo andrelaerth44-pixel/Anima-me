@@ -33,6 +33,7 @@ class TimelinePanel(
     private var zoom = 1f
     private val baseFrameWidth = 42f
     private val layerHeaderWidth = 230
+    private var cycleMode = "Independente"
 
     init {
         orientation = VERTICAL
@@ -64,6 +65,7 @@ class TimelinePanel(
             addView(label("${(zoom * 100).toInt()}%", 42), LinearLayout.LayoutParams(42, -1))
             addView(smallButton("In", 30) { setPlaybackStart() })
             addView(smallButton("Out", 30) { setPlaybackEnd() })
+            addView(smallButton(cycleMode, 86) { showCycleMode() })
         }
         ruler.addView(tools, LinearLayout.LayoutParams(layerHeaderWidth, -1))
         for (frame in 0 until document.duration) {
@@ -87,6 +89,21 @@ class TimelinePanel(
                 )
             }, LinearLayout.LayoutParams(width, 38))
         }
+    }
+
+    private fun showCycleMode() {
+        val modes = arrayOf("Independente", "Sincronizar camadas", "Manter duração geral")
+        val selected = modes.indexOf(cycleMode).coerceAtLeast(0)
+        AlertDialog.Builder(context)
+            .setTitle("Modo de duração")
+            .setSingleChoiceItems(modes, selected) { dialog, which ->
+                cycleMode = modes[which]
+                dialog.dismiss()
+                buildRuler()
+                onLayerChanged()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     fun refresh(accent: Int) {
@@ -125,7 +142,6 @@ class TimelinePanel(
             }
         }
         header.addView(name, LinearLayout.LayoutParams(-1, 29))
-
         val controls = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -167,7 +183,6 @@ class TimelinePanel(
         }
         header.addView(controls, LinearLayout.LayoutParams(-1, 30))
         row.addView(header, LinearLayout.LayoutParams(layerHeaderWidth, -1))
-
         val track = LinearLayout(context).apply {
             orientation = HORIZONTAL
             setBackgroundColor(Color.rgb(20, 23, 27))
@@ -175,18 +190,11 @@ class TimelinePanel(
         for (frame in 0 until document.duration) {
             val drawing = layer.frameAt(frame)
             val cell = TextView(context).apply {
-                text = when {
-                    frame == document.currentFrame -> "●"
-                    drawing != null && drawing.strokes.isNotEmpty() -> "●"
-                    drawing != null -> "○"
-                    else -> ""
-                }
+                text = ""
                 gravity = Gravity.CENTER
-                textSize = 14f
-                setTextColor(if (frame == document.currentFrame) accent else Color.LTGRAY)
                 setBackgroundColor(
                     when {
-                        frame == document.currentFrame -> Color.rgb(61, 68, 77)
+                        frame == document.currentFrame -> accent
                         drawing != null && drawing.strokes.isNotEmpty() -> Color.rgb(49, 56, 64)
                         drawing != null -> Color.rgb(42, 48, 55)
                         else -> Color.rgb(30, 34, 39)
@@ -206,99 +214,53 @@ class TimelinePanel(
 
     private fun renameLayer(layer: AnimationLayer) {
         val before = document.snapshot()
-        val input = EditText(context).apply {
-            setSingleLine(true)
-            setText(layer.name)
-            selectAll()
-        }
+        val input = EditText(context).apply { setSingleLine(true); setText(layer.name); selectAll() }
         AlertDialog.Builder(context)
             .setTitle("Nome da camada")
             .setView(input)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Guardar") { _, _ ->
                 val value = input.text.toString().trim()
-                if (value.isNotEmpty()) {
-                    layer.name = value
-                    record(before, "Renomear camada")
-                }
-            }
-            .show()
+                if (value.isNotEmpty()) { layer.name = value; record(before, "Renomear camada") }
+            }.show()
     }
 
     private fun showLayerProperties(layer: AnimationLayer) {
         val before = document.snapshot()
-        val box = LinearLayout(context).apply {
-            orientation = VERTICAL
-            setPadding(24, 8, 24, 0)
-        }
-        val opacity = SeekBar(context).apply {
-            max = 100
-            progress = (layer.opacity.coerceIn(0f, 1f) * 100f).toInt()
-        }
-        val value = TextView(context).apply {
-            text = "Opacidade: ${opacity.progress}%"
-            setTextColor(Color.DKGRAY)
-        }
+        val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(24, 8, 24, 0) }
+        val opacity = SeekBar(context).apply { max = 100; progress = (layer.opacity.coerceIn(0f, 1f) * 100f).toInt() }
+        val value = TextView(context).apply { text = "Opacidade: ${opacity.progress}%"; setTextColor(Color.DKGRAY) }
         opacity.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    layer.opacity = progress / 100f
-                    value.text = "Opacidade: $progress%"
-                }
-            }
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) { layer.opacity = progress / 100f; value.text = "Opacidade: $progress%" } }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        box.addView(value)
-        box.addView(opacity)
-        AlertDialog.Builder(context)
-            .setTitle("Propriedades da camada")
-            .setView(box)
+        box.addView(value); box.addView(opacity)
+        AlertDialog.Builder(context).setTitle("Propriedades da camada").setView(box)
             .setNegativeButton("Cancelar") { _, _ -> document.restore(before); onLayerChanged() }
             .setNeutralButton("Renomear") { _, _ -> renameLayer(layer) }
-            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar propriedades da camada") }
-            .show()
+            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar propriedades da camada") }.show()
     }
 
     private fun showFrameProperties(layer: AnimationLayer, frameIndex: Int, drawing: DrawingFrame) {
         val before = document.snapshot()
-        val box = LinearLayout(context).apply {
-            orientation = VERTICAL
-            setPadding(24, 8, 24, 0)
-        }
-        val exposure = SeekBar(context).apply {
-            max = 24
-            progress = drawing.exposure.coerceIn(1, 24) - 1
-        }
-        val value = TextView(context).apply {
-            text = "Exposição: ${drawing.exposure} frame(s)"
-            setTextColor(Color.DKGRAY)
-        }
+        val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(24, 8, 24, 0) }
+        val exposure = SeekBar(context).apply { max = 24; progress = drawing.exposure.coerceIn(1, 24) - 1 }
+        val value = TextView(context).apply { text = "Exposição: ${drawing.exposure} frame(s)"; setTextColor(Color.DKGRAY) }
         exposure.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) {
-                    drawing.exposure = progress + 1
-                    value.text = "Exposição: ${drawing.exposure} frame(s)"
-                }
-            }
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) { drawing.exposure = progress + 1; value.text = "Exposição: ${drawing.exposure} frame(s)" } }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        box.addView(value)
-        box.addView(exposure)
-        AlertDialog.Builder(context)
-            .setTitle("Frame ${frameIndex + 1}")
+        box.addView(value); box.addView(exposure)
+        AlertDialog.Builder(context).setTitle("Frame ${frameIndex + 1}")
             .setMessage("A exposição mantém este desenho visível por vários frames sem duplicar o conteúdo.")
             .setView(box)
             .setNegativeButton("Cancelar") { _, _ -> document.restore(before); onLayerChanged() }
-            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar exposição do frame") }
-            .show()
+            .setPositiveButton("Guardar") { _, _ -> record(before, "Alterar exposição do frame") }.show()
     }
 
-    private fun setZoom(value: Float) {
-        zoom = value.coerceIn(.5f, 4f)
-        refresh(ThemeColorStore.get(context))
-    }
+    private fun setZoom(value: Float) { zoom = value.coerceIn(.5f, 4f); refresh(ThemeColorStore.get(context)) }
 
     private fun setPlaybackStart() {
         val before = document.snapshot()
@@ -316,18 +278,10 @@ class TimelinePanel(
     }
 
     private fun label(text: String, width: Int) = TextView(context).apply {
-        this.text = text
-        textSize = 9f
-        gravity = Gravity.CENTER
-        setTextColor(Color.LTGRAY)
-        setPadding(2, 0, 2, 0)
+        this.text = text; textSize = 9f; gravity = Gravity.CENTER; setTextColor(Color.LTGRAY); setPadding(2, 0, 2, 0)
     }
 
     private fun smallButton(text: String, width: Int, action: () -> Unit) = Button(context).apply {
-        this.text = text
-        textSize = 8f
-        setPadding(0, 0, 0, 0)
-        setOnClickListener { action() }
-        layoutParams = LinearLayout.LayoutParams(width, 32)
+        this.text = text; textSize = 8f; setPadding(0, 0, 0, 0); setOnClickListener { action() }; layoutParams = LinearLayout.LayoutParams(width, 32)
     }
 }
