@@ -10,10 +10,11 @@ object BrushEngine {
         if (samples.isEmpty()) return emptyList()
         val s = BrushSettingsOverrides.apply(BrushProfileResolver.resolve(settings)).normalized()
         val rng = Random(seed xor s.id.hashCode().toLong())
+        val working = StrokeDensifier.densify(samples)
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
         var distance = Float.POSITIVE_INFINITY
-        samples.forEach { p ->
+        working.forEach { p ->
             val q = prev
             val dx = if (q == null) 0f else p.x - q.x
             val dy = if (q == null) 0f else p.y - q.y
@@ -27,7 +28,7 @@ object BrushEngine {
             val pressureOpacity = lerp(s.minOpacity, 1f, effectivePressure * s.pressureOpacityFactor.coerceIn(0f, 1f))
             val speedSize = lerp(1f, s.speedSizeFactor, speed01)
             val speedOpacity = lerp(1f, s.speedOpacityFactor, speed01)
-            val fade = strokeFade(p, samples, s)
+            val fade = strokeFade(p, working, s)
             val pressureBlur = effectivePressure * s.pressureBlurFactor.coerceIn(0f, 2f)
             val speedBlur = speed01 * s.speedBlurFactor.coerceIn(0f, 2f)
             val dynamicBlur = (s.blur + pressureBlur * .22f + speedBlur * .18f).coerceIn(0f, 1f)
