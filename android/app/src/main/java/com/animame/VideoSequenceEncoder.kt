@@ -29,39 +29,46 @@ object VideoSequenceEncoder {
         val info = MediaCodec.BufferInfo()
         val frameDurationUs = 1_000_000L / safeFps
         var pts = 0L
-        try {
-            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            codec.start()
-            fun startMuxer(outputFormat: MediaFormat) {
-                if (muxerStarted) return
-                muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-                trackIndex = muxer!!.addTrack(outputFormat)
-                muxer!!.start()
-                muxerStarted = true
-            }
-            fun drain(endOfStream: Boolean = false): Boolean {
-                var eos = false
-                while (true) {
-                    val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
-                    when {
-                        index == MediaCodec.INFO_TRY_AGAIN_LATER -> return eos
-                        index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> startMuxer(codec.getOutputFormat())
-                        index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
-                        index >= 0 -> {
-                            val data = codec.getOutputBuffer(index)
-                            if (data != null && info.size > 0 && muxerStarted) {
-                                data.position(info.offset)
-                                data.limit(info.offset + info.size)
-                                muxer!!.writeSampleData(trackIndex, data, info)
-                            }
-                            eos = eos || (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0)
-                            codec.releaseOutputBuffer(index, false)
-                            if (eos) return true
+
+        fun startMuxer(outputFormat: MediaFormat) {
+            if (muxerStarted) return
+            muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            trackIndex = muxer!!.addTrack(outputFormat)
+            muxer!!.start()
+            muxerStarted = true
+        }
+
+        fun drain(endOfStream: Boolean = false): Boolean {
+            var eos = false
+            while (true) {
+                val index = codec.dequeueOutputBuffer(info, if (endOfStream) 10_000 else 0)
+                when {
+                    index == MediaCodec.INFO_TRY_AGAIN_LATER -> return eos
+                    index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val outputFormat: MediaFormat = codec.outputFormat
+                        startMuxer(outputFormat)
+                    }
+                    index == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> Unit
+                    index >= 0 -> {
+                        val data: ByteBuffer? = codec.getOutputBuffer(index)
+                        if (data != null && info.size > 0 && muxerStarted) {
+                            data.position(info.offset)
+                            data.limit(info.offset + info.size)
+                            muxer!!.writeSampleData(trackIndex, data, info)
                         }
+                        eos = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+                        codec.releaseOutputBuffer(index, false)
+                        if (eos) return true
                     }
                 }
             }
-            frames.forEach { bitmap ->
+        }
+
+        try {
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+
+            for (bitmap in frames) {
                 var queued = false
                 while (!queued) {
                     val inputIndex = codec.dequeueInputBuffer(10_000)
@@ -76,6 +83,7 @@ object VideoSequenceEncoder {
                     drain()
                 }
             }
+
             var eosQueued = false
             while (!eosQueued) {
                 val inputIndex = codec.dequeueInputBuffer(100_000)
@@ -85,7 +93,7 @@ object VideoSequenceEncoder {
                 }
                 drain()
             }
-            while (!drain(endOfStream = true)) { }
+            while (!drain(endOfStream = true)) Unit
         } finally {
             try { codec.stop() } catch (_: Throwable) { }
             codec.release()
@@ -111,13 +119,17 @@ object VideoSequenceEncoder {
             var sr = 0; var sg = 0; var sb = 0
             repeat(2) { dy -> repeat(2) { dx ->
                 val c = pixels[(j + dy) * src.width + i + dx]
-                sr += (c ushr 16) and 255; sg += (c ushr 8) and 255; sb += c and 255
+                sr += (c ushr 16) and 255
+                sg += (c ushr 8) and 255
+                sb += c and 255
             } }
             val r = sr / 4; val g = sg / 4; val b = sb / 4
             val index = (j / 2) * (width / 2) + i / 2
             u[index] = ((((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
             v[index] = ((((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)).toByte()
         }
-        buffer.put(y); buffer.put(u); buffer.put(v)
+        buffer.put(y)
+        buffer.put(u)
+        buffer.put(v)
     }
 }
