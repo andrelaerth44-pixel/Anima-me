@@ -59,35 +59,40 @@ class ImportExportActivity : Activity() {
         root.addView(status)
         refresh()
 
-        fun actionButton(label: String, action: () -> Unit) = Button(this).apply {
-            text = label
-            setTextColor(ThemeColorStore.TEXT)
-            setBackgroundColor(ThemeColorStore.NAVY_800)
-            setOnClickListener { action() }
-        }
-
         root.addView(actionButton("Importar imagens / sequência") { pickImages() })
         root.addView(actionButton("Importar vídeo → sequência de frames") { pickVideo() })
         root.addView(actionButton("Importar QR de uma imagem") { pickQr() })
-        root.addView(actionButton("Exportar imagem PNG + QR") { ifReady { save(saveImage, "anima-me-frame.png", "image/png") } })
-        root.addView(actionButton("Exportar sequência PNG (ZIP)") { ifReady { save(savePng, "anima-me-sequence.zip", "application/zip") } })
-        root.addView(actionButton("Exportar GIF") { ifReady { save(saveGif, "anima-me.gif", "image/gif") } })
-        root.addView(actionButton("Exportar vídeo MP4 (H.264)") { ifReady { save(saveMp4, "anima-me.mp4", "video/mp4") } })
+        root.addView(actionButton("Exportar imagem PNG + QR") { exportIfReady(saveImage, "anima-me-frame.png", "image/png") })
+        root.addView(actionButton("Exportar sequência PNG (ZIP)") { exportIfReady(savePng, "anima-me-sequence.zip", "application/zip") })
+        root.addView(actionButton("Exportar GIF") { exportIfReady(saveGif, "anima-me.gif", "image/gif") })
+        root.addView(actionButton("Exportar vídeo MP4 (H.264)") { exportIfReady(saveMp4, "anima-me.mp4", "video/mp4") })
         root.addView(actionButton("Limpar sequência") { MediaSequenceStore.clear(); refresh() })
         root.addView(actionButton("Voltar") { finish() })
         setContentView(root)
+    }
+
+    private fun actionButton(label: String, action: () -> Unit): Button = Button(this).apply {
+        text = label
+        setTextColor(ThemeColorStore.TEXT)
+        setBackgroundColor(ThemeColorStore.NAVY_800)
+        setOnClickListener { action() }
     }
 
     private fun refresh() {
         status.text = "Frames importados: ${MediaSequenceStore.count}"
     }
 
-    private fun ifReady(action: () -> Unit) {
+    private fun exportIfReady(code: Int, name: String, mime: String) {
         if (MediaSequenceStore.count == 0) {
             Toast.makeText(this, "Importa primeiro uma imagem ou sequência.", Toast.LENGTH_SHORT).show()
-        } else {
-            action()
+            return
         }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            type = mime
+            putExtra(Intent.EXTRA_TITLE, name)
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, code)
     }
 
     private fun pickImages() {
@@ -115,36 +120,27 @@ class ImportExportActivity : Activity() {
         startActivityForResult(intent, pickQr)
     }
 
-    private fun save(code: Int, name: String, mime: String) {
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            type = mime
-            putExtra(Intent.EXTRA_TITLE, name)
-            addCategory(Intent.CATEGORY_OPENABLE)
-        }
-        startActivityForResult(intent, code)
-    }
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data == null) return
+        if (resultCode != RESULT_OK) return
         when (requestCode) {
-            pickImages -> importImages(data)
-            pickVideo -> data.data?.let(::importVideo)
-            pickQr -> data.data?.let(::importQr)
-            saveImage -> data.data?.let(::exportImage)
-            savePng -> data.data?.let(::exportPngZip)
-            saveGif -> data.data?.let(::exportGif)
-            saveMp4 -> data.data?.let(::exportMp4)
+            pickImages -> if (data != null) importImages(data)
+            pickVideo -> data?.data?.let { uri -> importVideo(uri) }
+            pickQr -> data?.data?.let { uri -> importQr(uri) }
+            saveImage -> data?.data?.let { uri -> exportImage(uri) }
+            savePng -> data?.data?.let { uri -> exportPngZip(uri) }
+            saveGif -> data?.data?.let { uri -> exportGif(uri) }
+            saveMp4 -> data?.data?.let { uri -> exportMp4(uri) }
         }
     }
 
     private fun importImages(data: Intent) {
         val uris = mutableListOf<Uri>()
-        data.data?.let { uris += it }
+        data.data?.let { uris.add(it) }
         data.clipData?.let { clip ->
-            for (i in 0 until clip.itemCount) uris += clip.getItemAt(i).uri
+            for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
         }
-        val decoded = uris.distinct().sortedBy(::displayName).mapNotNull(::decode)
+        val decoded = uris.distinct().sortedBy { displayName(it) }.mapNotNull { decode(it) }
         if (decoded.isNotEmpty()) {
             MediaSequenceStore.replace(decoded)
             refresh()
@@ -162,7 +158,7 @@ class ImportExportActivity : Activity() {
             var timeUs = 0L
             val frames = mutableListOf<Bitmap>()
             while (timeUs < duration * 1000L && frames.size < 240) {
-                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)?.let { frames += scale(it, 1280) }
+                retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)?.let { frames.add(scale(it, 1280)) }
                 timeUs += stepUs
             }
             if (frames.isNotEmpty()) {
@@ -188,12 +184,11 @@ class ImportExportActivity : Activity() {
             return
         }
         val obj = ProjectQrCodec.unpack(payload)
-        Toast.makeText(
-            this,
-            if (obj != null) "QR Anima-me: ${obj.optString("name", "Projeto")} • ${obj.optInt("frames", obj.optInt("mediaFrames", 0))} frames"
-            else "QR lido: ${payload.take(40)}…",
-            Toast.LENGTH_LONG
-        ).show()
+        Toast.makeText(this, if (obj != null) {
+            "QR Anima-me: ${obj.optString("name", "Projeto")} • ${obj.optInt("frames", obj.optInt("mediaFrames", 0))} frames"
+        } else {
+            "QR lido: ${payload.take(40)}…"
+        }, Toast.LENGTH_LONG).show()
     }
 
     private fun exportImage(uri: Uri) {
@@ -237,7 +232,9 @@ class ImportExportActivity : Activity() {
         val temp = java.io.File(cacheDir, "animame-export.mp4")
         try {
             VideoSequenceEncoder.encode(MediaSequenceStore.all(), temp, 24)
-            contentResolver.openOutputStream(uri)?.use { destination -> temp.inputStream().use { source -> source.copyTo(destination) } }
+            contentResolver.openOutputStream(uri)?.use { destination ->
+                temp.inputStream().use { source -> source.copyTo(destination) }
+            }
             Toast.makeText(this, "MP4 H.264 exportado.", Toast.LENGTH_SHORT).show()
         } catch (e: Throwable) {
             Toast.makeText(this, "MP4 não suportado neste dispositivo: ${e.message}", Toast.LENGTH_LONG).show()
@@ -247,7 +244,7 @@ class ImportExportActivity : Activity() {
     }
 
     private fun decode(uri: Uri): Bitmap? = try {
-        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }?.let { scale(it, 1280) }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }?.let { bitmap -> scale(bitmap, 1280) }
     } catch (_: Throwable) {
         null
     }
