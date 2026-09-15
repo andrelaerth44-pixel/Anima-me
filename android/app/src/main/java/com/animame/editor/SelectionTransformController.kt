@@ -133,11 +133,6 @@ class SelectionTransformController {
         flippedVertical = !flippedVertical
     }
 
-    fun setCombineMode(value: CombineMode) {
-        combineMode = value
-        if (mode == Mode.NONE) mode = Mode.LASSO
-    }
-
     fun invertSelection() {
         inverted = !inverted
     }
