@@ -1,14 +1,20 @@
 package com.animame.editor
 
 object BrushLibraryBridge {
-    data class Preset(val id: String, val name: String, val category: String, val session: String, val subcategory: String)
+    data class Preset(
+        val id: String,
+        val name: String,
+        val category: String,
+        val session: String,
+        val subcategory: String
+    )
 
     fun presets(): List<Preset> = BrushLibraryV2.all.map { spec ->
         Preset(spec.id, spec.name, spec.category, spec.session, spec.subcategory)
     }
 
     fun settings(spec: BrushSpec): BrushSettings {
-        val material: BrushMaterial = when (spec.kernel) {
+        val material = when (spec.kernel) {
             BrushKernel.PENCIL -> BrushMaterial.PENCIL
             BrushKernel.CHARCOAL -> BrushMaterial.CHARCOAL
             BrushKernel.CHALK -> BrushMaterial.CHALK
@@ -22,30 +28,35 @@ object BrushLibraryBridge {
             BrushKernel.STAMP -> BrushMaterial.STAMP
             else -> BrushMaterial.DIGITAL
         }
-        val algorithm: BrushAlgorithm = when (spec.kernel) {
+
+        val algorithm = when (spec.kernel) {
             BrushKernel.WATERCOLOR -> BrushAlgorithm.WATER
             BrushKernel.AIRBRUSH, BrushKernel.SOFT -> BrushAlgorithm.AIRBRUSH
             BrushKernel.RIBBON -> BrushAlgorithm.VECTOR
             BrushKernel.STAMP, BrushKernel.SPRAY -> BrushAlgorithm.PROCEDURAL
             else -> BrushAlgorithm.PROCEDURAL
         }
-        val textureOpacity: Float = if (spec.texture == BrushTexture.NONE) 0f else spec.grain.coerceIn(0f, 1f)
-        val textureScale: Float = when (spec.texture) {
+
+        val textureOpacity = if (spec.texture == BrushTexture.NONE) 0f else spec.grain.coerceIn(0f, 1f)
+        val textureScale = when (spec.texture) {
             BrushTexture.PAPER, BrushTexture.CANVAS, BrushTexture.FABRIC -> 1.8f
             BrushTexture.GRAIN, BrushTexture.TOOTH, BrushTexture.ROUGH -> 1.25f
             BrushTexture.DOT, BrushTexture.SPECKLE -> 2.5f
             else -> 1f
         }
-        val pressureSize: Float = when (spec.dynamics) {
-            BrushDynamics.PRESSURE, BrushDynamics.PRESSURE_VELOCITY, BrushDynamics.PRESSURE_TILT -> .95f
+        val pressureSize = when (spec.dynamics) {
+            BrushDynamics.PRESSURE,
+            BrushDynamics.PRESSURE_VELOCITY,
+            BrushDynamics.PRESSURE_TILT -> .95f
             else -> .55f
         }
-        val pressureOpacity: Float = when (spec.dynamics) {
-            BrushDynamics.PRESSURE_TILT, BrushDynamics.PRESSURE_VELOCITY -> .9f
+        val pressureOpacity = when (spec.dynamics) {
+            BrushDynamics.PRESSURE_TILT,
+            BrushDynamics.PRESSURE_VELOCITY -> .9f
             else -> .55f
         }
-        val speedSize: Float = (1f - (spec.dynamics.ordinal / 12f)).coerceIn(.35f, 1f)
-        val speedOpacity: Float = (1f - spec.velocityResponse * .45f).coerceIn(.1f, 1f)
+        val speedSize = (1f - spec.dynamics.ordinal.toFloat() / 12f).coerceIn(.35f, 1f)
+        val speedOpacity = (1f - spec.velocityResponse * .45f).coerceIn(.1f, 1f)
 
         return BrushSettings(
             id = spec.id,
@@ -75,7 +86,7 @@ object BrushLibraryBridge {
             fadeEnd = spec.fadeEnd.coerceIn(0f, 1f),
             speedSizeFactor = speedSize,
             speedOpacityFactor = speedOpacity,
-            pressureExponent = spec.pressureExponent,
+            pressureExponent = spec.pressureExponent.coerceIn(.1f, 4f),
             waterColorMix = spec.mix.coerceIn(0f, 1f),
             waterWetness = if (material == BrushMaterial.WATERCOLOR) .75f else 0f,
             antialias = true
