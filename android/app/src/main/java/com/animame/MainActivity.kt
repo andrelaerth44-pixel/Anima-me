@@ -25,6 +25,7 @@ import com.animame.editor.AnimationPlaybackController
 import com.animame.editor.BrushDefaults
 import com.animame.editor.BrushEngine
 import com.animame.editor.BrushPresetRepository
+import com.animame.editor.BrushSettings
 import com.animame.editor.DrawingFrame
 import com.animame.editor.EditorRasterCache
 import com.animame.editor.EditorToolEngine
@@ -40,11 +41,13 @@ class MainActivity : Activity() {
     private lateinit var timelineLabel: TextView
     private lateinit var frameStrip: LinearLayout
     private val pickBrushQr = 1001
+    private val toolOptionsRequest = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         ImportedBrushRepository.initialize(this)
+        BrushToolState.load(this)
         buildUi()
     }
 
@@ -65,6 +68,7 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == pickBrushQr && resultCode == RESULT_OK) editor.importBrushQr(data?.data)
+        if (requestCode == toolOptionsRequest && resultCode == RESULT_OK) editor.applyToolState()
     }
 
     private fun buildUi() {
@@ -88,6 +92,7 @@ class MainActivity : Activity() {
         top.addView(button("Suavizar", 82) { editor.toggleAntialias() })
         top.addView(button("Tamanho", 82) { editor.adjustSize() })
         top.addView(button("Opacidade", 90) { editor.adjustOpacity() })
+        top.addView(button("Opções…", 82) { startActivityForResult(Intent(this@MainActivity, ToolOptionsActivity::class.java), toolOptionsRequest) })
         top.addView(button("− Zoom", 72) { editor.adjustZoom(-.1f) })
         top.addView(button("100%", 62) { editor.resetViewport() })
         top.addView(button("+ Zoom", 72) { editor.adjustZoom(.1f) })
@@ -150,8 +155,8 @@ class MainActivity : Activity() {
         private val stampCache = StrokeStampCache()
         private var contentVersion = 0L
         private var accent = ThemeColorStore.DEFAULT
-        private var brushSize = 12f
-        private var brushOpacity = 1f
+        private var brushSize = BrushToolState.size
+        private var brushOpacity = BrushToolState.opacity
         private var drawing = false
         private var onionEnabled = true
         private var playing = false
@@ -233,7 +238,7 @@ class MainActivity : Activity() {
                 drawOnionSkin(cached)
                 drawDocument(cached)
             }
-            if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, accent, 1f)
+            if (previewStamps.isNotEmpty()) drawStamps(c, previewStamps, if (tool == EditorToolEngine.ToolType.ERASER) accent else BrushToolState.color, 1f)
             c.restore()
             c.drawText("ANIMA-ME", 78f, 38f, text)
             c.drawText("${tool.name}  •  Frame ${document.currentFrame + 1}/${document.duration}  •  ${document.fps} FPS  •  ${document.layers.size} camada(s)", 78f, 58f, sub)
@@ -396,26 +401,56 @@ class MainActivity : Activity() {
             return Pair(rx / zoom + cx, ry / zoom + cy)
         }
 
+        /**
+         * Applies the size/opacity/antialias quick controls together with
+         * the full BrushToolState (flow, spacing, rotation jitter, pressure
+         * sensitivity) set from the "Opções…" screen, so both entry points
+         * to brush configuration produce the same stroke.
+         */
+        private fun toolAdjustedSettings(base: BrushSettings): BrushSettings = base.copy(
+            size = brushSize,
+            opacity = brushOpacity,
+            antialias = smoothEdges,
+            flow = BrushToolState.flow,
+            spacing = BrushToolState.spacing.coerceIn(.005f, 4f),
+            rotationJitter = if (BrushToolState.randomRotation) .4f else base.rotationJitter,
+            pressureSizeFactor = if (BrushToolState.pressure) base.pressureSizeFactor else 0f,
+            pressureOpacityFactor = if (BrushToolState.pressure) base.pressureOpacityFactor else 0f
+        )
+
         private fun renderPreview() {
             val base = if (tool == EditorToolEngine.ToolType.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
-            previewStamps = BrushEngine.stamps(currentSamples, base.copy(size = brushSize, opacity = brushOpacity, antialias = smoothEdges), document.currentFrame.toLong())
+            previewStamps = BrushEngine.stamps(currentSamples, toolAdjustedSettings(base), document.currentFrame.toLong())
         }
 
         private fun commitStroke() {
             if (currentSamples.isEmpty()) return
             val frame = document.activeLayer.ensureFrame(document.currentFrame)
-            val color = if (tool == EditorToolEngine.ToolType.ERASER) Color.WHITE else accent
+            val color = if (tool == EditorToolEngine.ToolType.ERASER) Color.WHITE else BrushToolState.color
             val base = if (tool == EditorToolEngine.ToolType.ERASER) BrushDefaults.forPreset("eraser") else BrushPresetRepository.find(brushId)
-            val settings = base.copy(size = brushSize, opacity = brushOpacity, antialias = smoothEdges)
+            val settings = toolAdjustedSettings(base)
             frame.strokes += StrokeData(brushId = settings.id, color = color, size = brushSize, opacity = brushOpacity, settings = settings, samples = currentSamples.map { it.copy() }.toMutableList())
             contentVersion++
             rasterCache.invalidate()
+        }
+
+        /** Re-reads BrushToolState after ToolOptionsActivity returns. */
+        fun applyToolState() {
+            brushSize = BrushToolState.size
+            brushOpacity = BrushToolState.opacity
+            invalidate()
         }
 
         fun toggleAntialias() {
             smoothEdges = !smoothEdges
             Toast.makeText(this@MainActivity, if (smoothEdges) "Suavizar: ligado (bordas menos pixeladas)" else "Suavizar: desligado (bordas nítidas)", Toast.LENGTH_SHORT).show()
             invalidate()
+        }
+
+        private fun persistToolState() {
+            BrushToolState.size = brushSize
+            BrushToolState.opacity = brushOpacity
+            BrushToolState.save(this@MainActivity)
         }
 
         fun showBrushPicker() {
@@ -533,8 +568,8 @@ class MainActivity : Activity() {
         }
 
         private fun hasContent(i: Int) = document.layers.any { layer -> !layer.frameAt(i)?.strokes.isNullOrEmpty() }
-        fun adjustSize() { brushSize = when { brushSize < 8f -> 12f; brushSize < 24f -> 32f; brushSize < 64f -> 72f; else -> 6f }; Toast.makeText(this@MainActivity, "Tamanho: ${brushSize.toInt()} px", Toast.LENGTH_SHORT).show() }
-        fun adjustOpacity() { brushOpacity = when { brushOpacity > .85f -> .65f; brushOpacity > .55f -> .35f; else -> 1f }; Toast.makeText(this@MainActivity, "Opacidade: ${(brushOpacity * 100).toInt()}%", Toast.LENGTH_SHORT).show() }
+        fun adjustSize() { brushSize = when { brushSize < 8f -> 12f; brushSize < 24f -> 32f; brushSize < 64f -> 72f; else -> 6f }; persistToolState(); Toast.makeText(this@MainActivity, "Tamanho: ${brushSize.toInt()} px", Toast.LENGTH_SHORT).show() }
+        fun adjustOpacity() { brushOpacity = when { brushOpacity > .85f -> .65f; brushOpacity > .55f -> .35f; else -> 1f }; persistToolState(); Toast.makeText(this@MainActivity, "Opacidade: ${(brushOpacity * 100).toInt()}%", Toast.LENGTH_SHORT).show() }
 
         override fun onDetachedFromWindow() {
             stopPlayback()
