@@ -4,7 +4,11 @@ import kotlin.math.*
 import kotlin.random.Random
 
 object BrushEngine {
-    data class Stamp(val x: Float, val y: Float, val size: Float, val alpha: Float, val angle: Float, val colorShift: Float, val antialias: Boolean = true, val edgeQuality: EdgeSmoothing.Quality = EdgeSmoothing.Quality.HIGH)
+    data class Stamp(
+        val x: Float, val y: Float, val size: Float, val alpha: Float, val angle: Float, val colorShift: Float,
+        val antialias: Boolean = true, val edgeQuality: EdgeSmoothing.Quality = EdgeSmoothing.Quality.HIGH,
+        val shape: StampShape = StampShape.CIRCLE, val filled: Boolean = true
+    )
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
         if (samples.isEmpty()) return emptyList()
@@ -44,6 +48,8 @@ object BrushEngine {
                 BrushMaterial.OIL, BrushMaterial.ACRYLIC -> 1.02f + rng.nextFloat() * .14f
                 BrushMaterial.AIRBRUSH -> 1.35f
                 BrushMaterial.PARTICLE, BrushMaterial.STAMP -> .9f + rng.nextFloat() * .3f
+                BrushMaterial.GLITTER -> .8f + rng.nextFloat() * .5f
+                BrushMaterial.PLANT -> .85f + rng.nextFloat() * .35f
                 else -> 1f
             }
             val size = s.size * pressureSize * speedSize * materialSize * (1f + s.jitterThickness * (rng.nextFloat() * 2f - 1f)).coerceIn(.1f, 4f)
@@ -60,7 +66,7 @@ object BrushEngine {
             } * textureFactor
             val jitter = s.jitterPosition * size
             val scatter = s.scatterSize * size
-            val rotation = s.initialAngle + (if (s.followRotation) atan2(dy, dx) else 0f) + s.rotationJitter * (rng.nextFloat() * 2f - 1f)
+            val rotation = s.initialAngle + (if (s.followRotation) Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() else 0f) + s.rotationJitter * (rng.nextFloat() * 2f - 1f) * 90f
             val spacing = max(.5f, s.spacing * size * (1f + s.jitterSpacing * (rng.nextFloat() * 2f - 1f)))
             distance += hypot(dx, dy)
             if (prev == null || distance >= spacing) {
@@ -69,7 +75,8 @@ object BrushEngine {
                     p.y + (rng.nextFloat() * 2f - 1f) * jitter + (if (scatter > 0f) (rng.nextFloat() * 2f - 1f) * scatter else 0f),
                     size.coerceIn(.25f, 4096f), materialAlpha.coerceIn(0f, 1f), rotation,
                     (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f),
-                    s.antialias, if (s.antialias) EdgeSmoothing.Quality.MAX else EdgeSmoothing.Quality.FAST
+                    s.antialias, if (s.antialias) EdgeSmoothing.Quality.MAX else EdgeSmoothing.Quality.FAST,
+                    s.stampShape, s.stampFilled
                 )
                 distance = 0f
             }
