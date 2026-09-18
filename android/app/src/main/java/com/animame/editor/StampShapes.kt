@@ -15,22 +15,29 @@ import kotlin.math.sin
 enum class StampShape { CIRCLE, SQUARE, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, CROSS, HEART, DROP, LEAF, SNOWFLAKE, PAW }
 
 object StampShapes {
-    fun draw(c: Canvas, shape: StampShape, cx: Float, cy: Float, radius: Float, angle: Float, paint: Paint, filled: Boolean) {
+    /**
+     * @param aspect non-uniform stretch (>1 elongates along x, <1 along y),
+     * applied before rotation-independent local drawing so grass/leaf/flat
+     * strokes actually read as elongated instead of always perfectly round.
+     */
+    fun draw(c: Canvas, shape: StampShape, cx: Float, cy: Float, radius: Float, angle: Float, aspect: Float, paint: Paint, filled: Boolean) {
         if (radius <= 0f) return
         val savedStyle = paint.style
         val savedWidth = paint.strokeWidth
         val forceStroke = shape == StampShape.SNOWFLAKE
         paint.style = if (filled && !forceStroke) Paint.Style.FILL else Paint.Style.STROKE
         if (paint.style == Paint.Style.STROKE) paint.strokeWidth = (radius * .22f).coerceAtLeast(1.2f)
+        c.save()
+        c.rotate(angle, cx, cy)
+        val a = aspect.coerceIn(.2f, 5f)
+        if (a != 1f) c.scale(a, 1f / a, cx, cy)
         if (shape == StampShape.CIRCLE) {
             c.drawCircle(cx, cy, radius, paint)
         } else {
-            c.save()
-            c.rotate(angle, cx, cy)
             val path = path(shape, cx, cy, radius)
             if (path != null) c.drawPath(path, paint) else c.drawCircle(cx, cy, radius, paint)
-            c.restore()
         }
+        c.restore()
         paint.style = savedStyle
         paint.strokeWidth = savedWidth
     }
