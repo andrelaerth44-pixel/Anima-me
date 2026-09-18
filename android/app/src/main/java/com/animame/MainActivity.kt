@@ -274,13 +274,13 @@ class MainActivity : Activity() {
                 stampPaint.isDither = stamp.antialias
                 val a = (stamp.alpha * layerOpacity * 255f).toInt().coerceIn(1, 255)
                 stampPaint.color = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
-                if (stamp.antialias && stamp.edgeQuality == com.animame.editor.EdgeSmoothing.Quality.MAX) {
+                if (stamp.shape == com.animame.editor.StampShape.CIRCLE && stamp.antialias && stamp.edgeQuality == com.animame.editor.EdgeSmoothing.Quality.MAX) {
                     val fringe = (a * .16f).toInt().coerceIn(1, 255)
                     stampPaint.color = Color.argb(fringe, Color.red(color), Color.green(color), Color.blue(color))
                     c.drawCircle(stamp.x, stamp.y, stamp.size * .5f + .45f, stampPaint)
                     stampPaint.color = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
                 }
-                c.drawCircle(stamp.x, stamp.y, stamp.size * .5f, stampPaint)
+                com.animame.editor.StampShapes.draw(c, stamp.shape, stamp.x, stamp.y, stamp.size * .5f, stamp.angle, stampPaint, stamp.filled)
             }
         }
 
