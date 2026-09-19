@@ -7,7 +7,8 @@ object BrushEngine {
     data class Stamp(
         val x: Float, val y: Float, val size: Float, val alpha: Float, val angle: Float, val colorShift: Float,
         val antialias: Boolean = true, val edgeQuality: EdgeSmoothing.Quality = EdgeSmoothing.Quality.HIGH,
-        val shape: StampShape = StampShape.CIRCLE, val filled: Boolean = true
+        val shape: StampShape = StampShape.CIRCLE, val filled: Boolean = true,
+        val blendAdd: Boolean = false, val blurRadius: Float = 0f, val aspect: Float = 1f
     )
 
     fun stamps(samples: List<StrokeSample>, settings: BrushSettings, seed: Long = 0L): List<Stamp> {
@@ -30,6 +31,8 @@ object BrushEngine {
         val out = ArrayList<Stamp>()
         var prev: StrokeSample? = null
         var distance = Float.POSITIVE_INFINITY
+        val waterMix = s.waterColorMix.coerceIn(0f, 1f)
+        val waterDrag = s.waterDragging.coerceIn(0f, 1f)
         corrected.forEachIndexed { index, p ->
             val q = prev
             val dx = if (q == null) 0f else p.x - q.x
@@ -44,7 +47,7 @@ object BrushEngine {
             val fade = strokeFade(index, corrected.size, s)
             val materialSize = when (s.material) {
                 BrushMaterial.PENCIL, BrushMaterial.CHARCOAL, BrushMaterial.CHALK -> .92f + rng.nextFloat() * .16f
-                BrushMaterial.WATERCOLOR, BrushMaterial.GOUACHE -> 1f + rng.nextFloat() * .08f
+                BrushMaterial.WATERCOLOR, BrushMaterial.GOUACHE -> 1f + rng.nextFloat() * (.08f + waterDrag * .35f)
                 BrushMaterial.OIL, BrushMaterial.ACRYLIC -> 1.02f + rng.nextFloat() * .14f
                 BrushMaterial.AIRBRUSH -> 1.35f
                 BrushMaterial.PARTICLE, BrushMaterial.STAMP -> .9f + rng.nextFloat() * .3f
@@ -58,9 +61,13 @@ object BrushEngine {
             val textureStrength = (s.textureOpacity * .7f + s.textureGrain * .3f).coerceIn(0f, 1f)
             val textureFloor = s.textureLowerLimit.coerceIn(0f, 1f)
             val textureFactor = lerp(1f, textureFloor + grainNoise * (1f - textureFloor), textureStrength)
+            // Watercolor "puddling": mix pools unevenly (extra alpha mottling), dragging pulls pigment thin at the edges of fast strokes.
+            val waterFactor = if (s.algorithm == BrushAlgorithm.WATER) {
+                (1f - waterMix * .2f * rng.nextFloat()) * (1f - waterDrag * .15f * speed01)
+            } else 1f
             val materialAlpha = when (s.algorithm) {
                 BrushAlgorithm.AIRBRUSH -> baseAlpha * (.45f + pressure * .55f)
-                BrushAlgorithm.WATER -> baseAlpha * (.55f + s.waterWetness.coerceIn(0f, 1f) * .45f)
+                BrushAlgorithm.WATER -> baseAlpha * (.55f + s.waterWetness.coerceIn(0f, 1f) * .45f) * waterFactor
                 BrushAlgorithm.DOUBLE, BrushAlgorithm.ERASER -> if (s.algorithm == BrushAlgorithm.ERASER) 1f else baseAlpha
                 else -> baseAlpha
             } * textureFactor
@@ -76,7 +83,10 @@ object BrushEngine {
                     size.coerceIn(.25f, 4096f), materialAlpha.coerceIn(0f, 1f), rotation,
                     (s.hueJitter + s.saturationJitter * .25f + s.brightnessJitter * .1f) * (rng.nextFloat() * 2f - 1f),
                     s.antialias, if (s.antialias) EdgeSmoothing.Quality.MAX else EdgeSmoothing.Quality.FAST,
-                    s.stampShape, s.stampFilled
+                    s.stampShape, s.stampFilled,
+                    s.blendMode == "ADD",
+                    (s.blur.coerceIn(0f, 1f) * size * .5f),
+                    s.aspect.coerceIn(.2f, 5f)
                 )
                 distance = 0f
             }
